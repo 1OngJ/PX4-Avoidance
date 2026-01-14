@@ -1,0 +1,8 @@
+local_planner:
+  ros__parameters:
+    # List of PointCloud2 topics. In ROS1 this was the nodelet private param `<rosparam param="pointcloud_topics">[...]`.
+    pointcloud_topics:
+      - /camera/depth/points
+    frame_fcu: fcu
+    frame_local: local_origin
+    accept_goal_input_topic: false

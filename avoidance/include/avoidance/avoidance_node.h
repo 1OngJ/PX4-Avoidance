@@ -4,12 +4,16 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "avoidance/common.h"
+
+#ifdef AVOIDANCE_HAVE_PX4_MSGS
 #include <px4_msgs/msg/telemetry_status.hpp>
+#endif
 
 #include <chrono>
 
 namespace avoidance {
 
+#ifdef AVOIDANCE_HAVE_PX4_MSGS
 class AvoidanceNode {
  public:
   AvoidanceNode();
@@ -66,5 +70,15 @@ class AvoidanceNode {
   rclcpp::Logger avoidance_node_logger_ = rclcpp::get_logger("avoidance_node");
 
 };
+
+#else
+
+class AvoidanceNode {
+ public:
+  AvoidanceNode() = delete;
+  ~AvoidanceNode() = delete;
+};
+
+#endif
 }
 #endif  // AVOIDANCE_AVOIDANCE_NODE_H

@@ -10,13 +10,16 @@ find_package(builtin_interfaces REQUIRED)
 find_package(perception_pcl REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_sensor_msgs REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(mavros_msgs REQUIRED)
 
 get_default_rmw_implementation(rmw_implementation)
 find_package("${rmw_implementation}" REQUIRED)
 
 find_package(avoidance REQUIRED)
 find_package(geometry_msgs REQUIRED)
-find_package(px4_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -52,7 +55,7 @@ include_directories(
 
 ## Declare a C++ library
 set(LOCAL_PLANNER_CPP_FILES
-  #"src/nodes/local_planner.cpp"
+  "src/nodes/local_planner.cpp"
   "src/nodes/waypoint_generator.cpp"
   "src/nodes/tree_node.cpp"
   "src/nodes/star_planner.cpp"
@@ -63,36 +66,71 @@ set(LOCAL_PLANNER_CPP_FILES
 
 # Add local_planner lib
 add_library(local_planner SHARED "${LOCAL_PLANNER_CPP_FILES}")
-ament_target_dependencies(local_planner Eigen3 px4_msgs ${${PROJECT_NAME}_EXPORTED_TARGETS})
+ament_target_dependencies(local_planner
+  rclcpp
+  tf2
+  tf2_ros
+  tf2_sensor_msgs
+  avoidance
+  geometry_msgs
+  nav_msgs
+  sensor_msgs
+  std_msgs
+  pcl_conversions
+)
 target_include_directories(local_planner PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/${PROJECT_NAME}>
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>
   ${Eigen3_INCLUDE_DIRS}
 )
 target_link_libraries(local_planner Eigen3::Eigen)
+target_link_libraries(local_planner avoidance::avoidance)
 
 ## Declare a C++ executable
 add_executable(local_planner_node
   src/nodes/local_planner_node_main.cpp
+  src/nodes/local_planner_node.cpp
 )
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(
   local_planner_node
   local_planner
-  avoidance
+  avoidance::avoidance
   ${YAML_CPP_LIBRARIES}
   ${Boost_LIBRARIES}
 )
 
 # Add node dependencies
-ament_target_dependencies(local_planner_node local_planner px4_msgs rclcpp avoidance)
+ament_target_dependencies(
+  local_planner_node
+  rclcpp
+  avoidance
+  geometry_msgs
+  sensor_msgs
+  tf2
+  tf2_ros
+  tf2_sensor_msgs
+  pcl_conversions
+  mavros_msgs
+)
 
 # Export information to downstream packages
-ament_export_dependencies(ament_cmake local_planner rclcpp rosidl_default_runtime eigen3_cmake_module Eigen3 px4_msgs geometry_msgs sensor_msgs std_msgs)
-ament_export_interfaces(export_local_planner HAS_LIBRARY_TARGET)
-ament_export_include_directories(include ${px4_msgs_INCLUDE_DIRS})
-ament_export_libraries()
+ament_export_dependencies(
+  rclcpp
+  tf2
+  tf2_ros
+  tf2_sensor_msgs
+  avoidance
+  geometry_msgs
+  nav_msgs
+  sensor_msgs
+  std_msgs
+  pcl_conversions
+)
+ament_export_targets(export_local_planner HAS_LIBRARY_TARGET)
+ament_export_include_directories(include)
+ament_export_libraries(local_planner)
 
 #############
 ## Install ##
@@ -104,9 +142,11 @@ install(DIRECTORY include/${PROJECT_NAME}/
 )
 
 # Install artifacts
-install(DIRECTORY cmake
-        DESTINATION share/${PROJECT_NAME}
-)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+  install(DIRECTORY cmake
+    DESTINATION share/${PROJECT_NAME}
+  )
+endif()
 install(TARGETS local_planner
         EXPORT export_local_planner
         ARCHIVE DESTINATION lib
@@ -115,22 +155,56 @@ install(TARGETS local_planner
         INCLUDES DESTINATION include
 )
 install(TARGETS local_planner_node
-        ARCHIVE DESTINATION lib/${PROJECT_NAME}
-        LIBRARY DESTINATION lib/${PROJECT_NAME}
-        RUNTIME DESTINATION bin
-        INCLUDES DESTINATION include
+        RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 # Install launch files
 install(DIRECTORY
   launch
+  params
   DESTINATION share/${PROJECT_NAME}
+)
+
+# Install test scripts
+install(PROGRAMS
+  test/test_node_interfaces.py
+  test/test_message_flow.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 #############
 ## Testing ##
 #############
 
+if(BUILD_TESTING)
+  find_package(ament_lint_auto QUIET)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  # TODO: Port legacy ROS1 tests to ROS2
+  # The original test files use ros::Time and geometry_msgs::PoseStamped (ROS1 style)
+  # They need to be updated to use rclcpp::Time and geometry_msgs::msg::PoseStamped
+
+  # # 基础算法单元测试（不依赖 ROS 节点）
+  # ament_add_gtest(test_planner_functions
+  #   test/main.cpp
+  #   test/test_planner_functions.cpp
+  # )
+  # if(TARGET test_planner_functions)
+  #   target_link_libraries(test_planner_functions local_planner)
+  #   ament_target_dependencies(test_planner_functions rclcpp)
+  # endif()
+
+  # ament_add_gtest(test_trajectory_simulator
+  #   test/main.cpp
+  #   test/test_trajectory_simulator.cpp
+  # )
+  # if(TARGET test_trajectory_simulator)
+  #   target_link_libraries(test_trajectory_simulator local_planner)
+  #   ament_target_dependencies(test_trajectory_simulator rclcpp)
+  # endif()
+endif()
+
+# Legacy catkin tests (commented out, kept for reference)
 # if(CATKIN_ENABLE_TESTING)
 #     # Add gtest based cpp test target and link libraries
 #     catkin_add_gtest(${PROJECT_NAME}-test test/main.cpp

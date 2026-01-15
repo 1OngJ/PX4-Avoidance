@@ -2,6 +2,8 @@
 
 #include <Eigen/Dense>
 
+#include <rclcpp/rclcpp.hpp>
+
 #include <vector>
 
 namespace avoidance {

@@ -1,10 +1,13 @@
 #include "avoidance/transform_buffer.h"
 
+#include <chrono>
+
 namespace avoidance {
 
 namespace tf_buffer {
 
-TransformBuffer::TransformBuffer(float buffer_size_s) : buffer_size_(rclcpp::Duration(buffer_size_s)) {
+TransformBuffer::TransformBuffer(float buffer_size_s)
+    : buffer_size_(rclcpp::Duration(std::chrono::duration<double>(buffer_size_s))) {
   startup_time_ = rclcpp::Clock().now();
 };
 
@@ -23,18 +26,24 @@ bool TransformBuffer::interpolateTransform(const geometry_msgs::msg::TransformSt
   const rclcpp::Duration timeAfterEarlier = rclcpp::Time(transform.header.stamp) - rclcpp::Time(tf_earlier.header.stamp);
   const float tau = static_cast<float>(timeAfterEarlier.nanoseconds()) / timeBetween.nanoseconds();
 
-  tf2::Vector3 tf_earlier_translation;
-  tf2::Quaternion tf_earlier_rotation;
-  tf2::Quaternion tf_later_rotation;
-  tf2::fromMsg(tf_earlier_translation, tf_earlier.transform.translation);
-  tf2::fromMsg(tf_earlier_rotation, tf_earlier.transform.rotation);
-  tf2::fromMsg(tf_later_rotation, tf_later.transform.rotation);
+  const tf2::Vector3 tf_earlier_translation(tf_earlier.transform.translation.x, tf_earlier.transform.translation.y,
+                                           tf_earlier.transform.translation.z);
+  const tf2::Vector3 tf_later_translation(tf_later.transform.translation.x, tf_later.transform.translation.y,
+                                         tf_later.transform.translation.z);
 
-  const tf2::Vector3 translation = tf_earlier_translation * (1.f - tau) + tf_earlier_translation * tau;
+  const tf2::Quaternion tf_earlier_rotation(tf_earlier.transform.rotation.x, tf_earlier.transform.rotation.y,
+                                           tf_earlier.transform.rotation.z, tf_earlier.transform.rotation.w);
+  const tf2::Quaternion tf_later_rotation(tf_later.transform.rotation.x, tf_later.transform.rotation.y,
+                                         tf_later.transform.rotation.z, tf_later.transform.rotation.w);
+
+  const tf2::Vector3 translation = tf_earlier_translation * (1.f - tau) + tf_later_translation * tau;
   const tf2::Quaternion rotation = tf_earlier_rotation.slerp(tf_later_rotation, tau);
 
   transform.transform.translation = avoidance::toVector3Msg(translation);
-  transform.transform.rotation = tf2::toMsg(rotation);
+  transform.transform.rotation.x = rotation.x();
+  transform.transform.rotation.y = rotation.y();
+  transform.transform.rotation.z = rotation.z();
+  transform.transform.rotation.w = rotation.w();
   return true;
 }
 
@@ -103,7 +112,7 @@ bool TransformBuffer::getTransform(const std::string& source_frame, const std::s
 }
 
 void TransformBuffer::print(const log_level& level, const std::string& msg) const {
-  if (rclcpp::Clock().now() - startup_time_ > rclcpp::Duration(3)) {
+  if (rclcpp::Clock().now() - startup_time_ > rclcpp::Duration(std::chrono::seconds(3))) {
     switch (level) {
       case error: {
         RCLCPP_ERROR(tf_logger_, "%s", msg.c_str());

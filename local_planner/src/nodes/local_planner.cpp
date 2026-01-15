@@ -4,11 +4,14 @@
 #include "local_planner/star_planner.h"
 #include "local_planner/tree_node.h"
 
-#include <sensor_msgs/image_encodings.h>
+#include <cmath>
 
 namespace avoidance {
 
-LocalPlanner::LocalPlanner() : star_planner_(new StarPlanner()) {}
+LocalPlanner::LocalPlanner()
+    : last_path_time_(steady_clock_.now()),
+      last_pointcloud_process_time_(steady_clock_.now()),
+      star_planner_(new StarPlanner()) {}
 
 LocalPlanner::~LocalPlanner() {}
 
@@ -21,38 +24,41 @@ void LocalPlanner::setState(const Eigen::Vector3f& pos, const Eigen::Vector3f& v
   star_planner_->setPose(position_, velocity_);
 }
 
-// set parameters changed by dynamic rconfigure
-void LocalPlanner::dynamicReconfigureSetParams(avoidance::LocalPlannerNodeConfig& config, uint32_t level) {
-  max_sensor_range_ = static_cast<float>(config.max_sensor_range_);
-  cost_params_.pitch_cost_param = config.pitch_cost_param_;
-  cost_params_.yaw_cost_param = config.yaw_cost_param_;
-  cost_params_.velocity_cost_param = config.velocity_cost_param_;
-  cost_params_.obstacle_cost_param = config.obstacle_cost_param_;
-  max_point_age_s_ = static_cast<float>(config.max_point_age_s_);
-  min_num_points_per_cell_ = config.min_num_points_per_cell_;
-  min_sensor_range_ = static_cast<float>(config.min_sensor_range_);
-  timeout_startup_ = config.timeout_startup_;
-  timeout_critical_ = config.timeout_critical_;
-  timeout_termination_ = config.timeout_termination_;
-  children_per_node_ = config.children_per_node_;
-  n_expanded_nodes_ = config.n_expanded_nodes_;
-  smoothing_margin_degrees_ = static_cast<float>(config.smoothing_margin_degrees_);
+void LocalPlanner::setParams(const Params& params) {
+  max_sensor_range_ = params.max_sensor_range;
+  min_sensor_range_ = params.min_sensor_range;
+  max_point_age_s_ = params.max_point_age_s;
+  min_num_points_per_cell_ = params.min_num_points_per_cell;
+  timeout_startup_ = params.timeout_startup;
+  timeout_critical_ = params.timeout_critical;
+  timeout_termination_ = params.timeout_termination;
+  smoothing_margin_degrees_ = params.smoothing_margin_degrees;
+  camera_yaw_offset_deg_ = params.camera_yaw_offset_deg;
 
-  if (getGoal().z() != config.goal_z_param) {
-    auto goal = getGoal();
-    goal.z() = config.goal_z_param;
-    setGoal(goal);
-  }
+  children_per_node_ = params.children_per_node;
+  n_expanded_nodes_ = params.n_expanded_nodes;
 
-  star_planner_->dynamicReconfigureSetStarParams(config, level);
+  cost_params_.pitch_cost_param = params.pitch_cost_param;
+  cost_params_.yaw_cost_param = params.yaw_cost_param;
+  cost_params_.velocity_cost_param = params.velocity_cost_param;
+  cost_params_.obstacle_cost_param = params.obstacle_cost_param;
 
-  ROS_DEBUG("\033[0;35m[OA] Dynamic reconfigure call \033[0m");
+  // StarPlanner uses some of these parameters internally
+  // (tree heuristic weight, node distance, etc.)
+  // We keep the logic centralized here to avoid dynamic_reconfigure.
+  // Note: StarPlanner currently only exposes cost params; other values are
+  // stored locally and used via children_per_node_/n_expanded_nodes_.
+  // tree_heuristic_weight_ is stored in cost_params_ consumer side.
+  (void)params.tree_node_distance;
+  (void)params.tree_heuristic_weight;
+
+  RCLCPP_DEBUG(logger_, "\033[0;35m[OA] Params updated\033[0m");
 }
 
 void LocalPlanner::setGoal(const Eigen::Vector3f& goal) {
   goal_ = goal;
 
-  ROS_INFO("===== Set Goal ======: [%f, %f, %f].", goal_.x(), goal_.y(), goal_.z());
+  RCLCPP_INFO(logger_, "===== Set Goal ======: [%f, %f, %f].", goal_.x(), goal_.y(), goal_.z());
   applyGoal();
 }
 void LocalPlanner::setPreviousGoal(const Eigen::Vector3f& prev_goal) { prev_goal_ = prev_goal; }
@@ -70,14 +76,15 @@ Eigen::Vector3f LocalPlanner::getGoal() const { return goal_; }
 void LocalPlanner::applyGoal() { star_planner_->setGoal(goal_); }
 
 void LocalPlanner::runPlanner() {
-  ROS_INFO("\033[1;35m[OA] Planning started, using %i cameras\n \033[0m",
-           static_cast<int>(original_cloud_vector_.size()));
+  RCLCPP_INFO(logger_, "\033[1;35m[OA] Planning started, using %i cameras\n \033[0m",
+              static_cast<int>(original_cloud_vector_.size()));
 
-  float elapsed_since_last_processing = static_cast<float>((ros::Time::now() - last_pointcloud_process_time_).toSec());
+  const auto now_steady = steady_clock_.now();
+  float elapsed_since_last_processing = static_cast<float>((now_steady - last_pointcloud_process_time_).seconds());
   processPointcloud(final_cloud_, original_cloud_vector_, fov_fcu_frame_, yaw_fcu_frame_deg_, pitch_fcu_frame_deg_,
                     position_, min_sensor_range_, max_sensor_range_, max_point_age_s_, elapsed_since_last_processing,
                     min_num_points_per_cell_);
-  last_pointcloud_process_time_ = ros::Time::now();
+  last_pointcloud_process_time_ = now_steady;
 
   determineStrategy();
 }
@@ -143,26 +150,76 @@ void LocalPlanner::determineStrategy() {
 
     // build search tree
     star_planner_->buildLookAheadTree();
-    last_path_time_ = ros::Time::now();
+    last_path_time_ = steady_clock_.now();
   }
 }
 
 void LocalPlanner::updateObstacleDistanceMsg(Histogram hist) {
-  sensor_msgs::LaserScan msg = {};
-  msg.header.stamp = ros::Time::now();
-  msg.header.frame_id = "local_origin";
-  msg.angle_increment = static_cast<double>(ALPHA_RES) * M_PI / 180.0;
+  sensor_msgs::msg::LaserScan msg = {};
+  {
+    const auto now = rclcpp::Clock(RCL_SYSTEM_TIME).now();
+    const int64_t now_ns = now.nanoseconds();
+    msg.header.stamp.sec = static_cast<int32_t>(now_ns / 1000000000LL);
+    msg.header.stamp.nanosec = static_cast<uint32_t>(now_ns % 1000000000LL);
+  }
+  msg.header.frame_id = "base_link";
+  
+  // PX4 OBSTACLE_DISTANCE format:
+  // - 72 sectors, 5° each, covering 360°
+  // - Index 0 = forward (0°)
+  // - Index increases clockwise (right side: 0->35, left side from rear: 36->71)
+  // - Index 0 = 0° (front), Index 18 = 90° (right), Index 36 = 180° (rear), Index 54 = 270° (left)
+  const int PX4_SECTORS = 72;
+  const float PX4_SECTOR_DEG = 5.0f;
+  
+  msg.angle_increment = PX4_SECTOR_DEG * M_PI / 180.0f;
+  msg.angle_min = 0.0f;  // Start from forward (0°)
+  msg.angle_max = (PX4_SECTORS - 1) * msg.angle_increment;  // 355°
+  msg.time_increment = 0.0f;
+  msg.scan_time = 0.1f;  // 10 Hz
   msg.range_min = min_sensor_range_;
   msg.range_max = max_sensor_range_;
-  msg.ranges.reserve(GRID_LENGTH_Z);
+  msg.ranges.reserve(PX4_SECTORS);
+  
+  const int camera_offset_bins = static_cast<int>(std::round(camera_yaw_offset_deg_ / ALPHA_RES));
+  
+  for (int i = 0; i < PX4_SECTORS; ++i) {
+    // PX4 index i corresponds to angle i * 5° clockwise from front
+    // Convert to histogram index:
+    // - PX4 angle = i * 5° (0° = front, clockwise positive)
+    // - Histogram uses: azimuth = atan2(x, y), where 0° = North (+Y), 90° = East (+X)
+    // - But camera data: need camera_offset correction
+    
+    // PX4 body frame angle (clockwise from front)
+    float px4_angle_deg = i * PX4_SECTOR_DEG;
+    
+    // Convert PX4 angle to histogram index
+    // Histogram: index 0 = -180°, index 30 = 0° (for 60 bins, 6° each)
+    // PX4 0° (front) should map to histogram index that represents front after camera correction
+    // 
+    // histogram_angle = px4_angle - 180° (to shift 0° front to histogram's 0° reference)
+    // Then add camera offset
+    float hist_angle_deg = px4_angle_deg + camera_yaw_offset_deg_ - 180.0f;
+    
+    // Normalize to [-180, 180)
+    while (hist_angle_deg >= 180.0f) hist_angle_deg -= 360.0f;
+    while (hist_angle_deg < -180.0f) hist_angle_deg += 360.0f;
+    
+    // Convert angle to histogram index
+    int hist_index = static_cast<int>(std::round((hist_angle_deg + 180.0f) / ALPHA_RES));
+    hist_index = hist_index % GRID_LENGTH_Z;
+    if (hist_index < 0) hist_index += GRID_LENGTH_Z;
+    
+    float dist = hist.get_dist(0, hist_index);
 
-  for (int i = 0; i < GRID_LENGTH_Z; ++i) {
-    // turn idxs 180 degress to point to local north instead of south
-    int j = (i + GRID_LENGTH_Z / 2) % GRID_LENGTH_Z;
-    float dist = hist.get_dist(0, j);
-
-    // is bin inside FOV?
-    if (histogramIndexYawInsideFOV(fov_fcu_frame_, j, position_, yaw_fcu_frame_deg_)) {
+    // For 360° sensors (like 2D/3D lidar) or when FOV is not set, skip FOV check
+    // FOV check is only meaningful for limited-FOV sensors like depth cameras
+    // Mid-360 and similar lidars have h_fov close to 360°, but updateFOVFromMaxima 
+    // might not detect it correctly, so we use a lower threshold (180°)
+    bool is_360_sensor = fov_fcu_frame_.empty() || 
+                         (fov_fcu_frame_.size() == 1 && fov_fcu_frame_[0].h_fov_deg >= 180.0f);
+    
+    if (is_360_sensor || histogramIndexYawInsideFOV(fov_fcu_frame_, hist_index, position_, yaw_fcu_frame_deg_)) {
       msg.ranges.push_back(dist > min_sensor_range_ ? dist : max_sensor_range_ + 0.01f);
     } else {
       msg.ranges.push_back(NAN);
@@ -173,10 +230,19 @@ void LocalPlanner::updateObstacleDistanceMsg(Histogram hist) {
 }
 
 void LocalPlanner::updateObstacleDistanceMsg() {
-  sensor_msgs::LaserScan msg = {};
-  msg.header.stamp = ros::Time::now();
-  msg.header.frame_id = "local_origin";
-  msg.angle_increment = static_cast<double>(ALPHA_RES) * M_PI / 180.0;
+  sensor_msgs::msg::LaserScan msg = {};
+  {
+    const auto now = rclcpp::Clock(RCL_SYSTEM_TIME).now();
+    const int64_t now_ns = now.nanoseconds();
+    msg.header.stamp.sec = static_cast<int32_t>(now_ns / 1000000000LL);
+    msg.header.stamp.nanosec = static_cast<uint32_t>(now_ns % 1000000000LL);
+  }
+  msg.header.frame_id = "base_link";  // PX4 expects body frame
+  msg.angle_increment = static_cast<float>(ALPHA_RES) * M_PI / 180.0f;
+  msg.angle_min = -M_PI;  // -180 degrees
+  msg.angle_max = M_PI - msg.angle_increment;  // +180 degrees (exclusive)
+  msg.time_increment = 0.0f;
+  msg.scan_time = 0.1f;  // 10 Hz
   msg.range_min = min_sensor_range_;
   msg.range_max = max_sensor_range_;
 
@@ -194,7 +260,6 @@ void LocalPlanner::setDefaultPx4Parameters() {
   px4_.param_acc_up_max = 10.f;
   px4_.param_mpc_z_vel_max_up = 3.f;
   px4_.param_mpc_acc_down_max = 10.f;
-  px4_.param_mpc_vel_max_dn = 1.f;
   px4_.param_mpc_acc_hor = 5.f;
   px4_.param_mpc_xy_cruise = 3.f;
   px4_.param_mpc_tko_speed = 1.f;
@@ -209,7 +274,7 @@ void LocalPlanner::getTree(std::vector<TreeNode>& tree, std::vector<int>& closed
   path_node_positions = star_planner_->path_node_positions_;
 }
 
-void LocalPlanner::getObstacleDistanceData(sensor_msgs::LaserScan& obstacle_distance) {
+void LocalPlanner::getObstacleDistanceData(sensor_msgs::msg::LaserScan& obstacle_distance) {
   obstacle_distance = distance_data_;
 }
 

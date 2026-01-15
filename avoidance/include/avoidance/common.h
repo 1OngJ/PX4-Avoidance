@@ -12,8 +12,10 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
+#ifdef AVOIDANCE_HAVE_PX4_MSGS
 #include <px4_msgs/msg/vehicle_trajectory_bezier.hpp>
 #include <px4_msgs/msg/vehicle_trajectory_waypoint.hpp>
+#endif
 #include <tf2/utils.h>
 #include <tf2_ros/transform_listener.h>
 #include <mutex>
@@ -329,6 +331,8 @@ double getAngularVelocity(float desired_yaw, float curr_yaw);
 * @params[in] pose, position and attitude setpoint computed by the planner
 * @params[in] vel, velocity setpoint computed by the planner
 **/
+
+#ifdef AVOIDANCE_HAVE_PX4_MSGS
 void transformToTrajectory(px4_msgs::msg::VehicleTrajectoryWaypoint& obst_avoid, geometry_msgs::msg::PoseStamped pose,
                            geometry_msgs::msg::Twist vel);
 
@@ -337,6 +341,7 @@ void transformToTrajectory(px4_msgs::msg::VehicleTrajectoryWaypoint& obst_avoid,
 * @param      point, setpoint to be filled with NAN
 **/
 void fillUnusedTrajectoryPoint(px4_msgs::msg::TrajectoryWaypoint& point);
+#endif
 
 /**
 * @brief           This is a refactored version of the PCL library function

@@ -12,8 +12,6 @@
 
 #include <nav_msgs/msg/grid_cells.hpp>
 
-#include "local_planner/local_planner.h"
-
 #include <vector>
 
 namespace avoidance {

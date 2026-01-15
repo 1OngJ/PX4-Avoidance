@@ -13,7 +13,9 @@
 #include "rclcpp/rclcpp.hpp"
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
+#ifdef AVOIDANCE_HAVE_PX4_MSGS
 #include <px4_msgs/msg/vehicle_odometry.hpp>
+#endif
 
 #include <sys/stat.h>
 
@@ -35,8 +37,8 @@ void operator>>(const YAML::Node& node, Eigen::Vector3f& v);
 void operator>>(const YAML::Node& node, Eigen::Vector4f& v);
 void operator>>(const YAML::Node& node, world_object& item);
 
-class WorldVisualizer : public rclcpp::Node
-{
+#ifdef AVOIDANCE_HAVE_PX4_MSGS
+class WorldVisualizer : public rclcpp::Node {
 private:
   /**
    * @brief      helper function to resolve gazebo model path
@@ -77,6 +79,16 @@ public:
    **/
   int visualizeDrone(const px4_msgs::msg::VehicleOdometry& pose) const;
 };
+
+#else
+
+class WorldVisualizer {
+ public:
+  WorldVisualizer() = delete;
+  ~WorldVisualizer() = delete;
+};
+
+#endif
 }
 
 #endif  // RVIZ_WORLD_H

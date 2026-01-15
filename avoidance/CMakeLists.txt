@@ -10,12 +10,13 @@ find_package(builtin_interfaces REQUIRED)
 find_package(perception_pcl REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 get_default_rmw_implementation(rmw_implementation)
 find_package("${rmw_implementation}" REQUIRED)
 
 find_package(geometry_msgs REQUIRED)
-find_package(px4_msgs REQUIRED)
+find_package(px4_msgs QUIET)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
@@ -56,15 +57,36 @@ set(AVOIDANCE_CPP_FILES
   "src/common.cpp"
   "src/histogram.cpp"
   "src/transform_buffer.cpp"
-  "src/avoidance_node.cpp"
 )
-if(NOT DISABLE_SIMULATION)
-  set(AVOIDANCE_CPP_FILES "${AVOIDANCE_CPP_FILES}" "src/rviz_world_loader.cpp")
+
+if(px4_msgs_FOUND)
+  list(APPEND AVOIDANCE_CPP_FILES "src/avoidance_node.cpp")
+  if(NOT DISABLE_SIMULATION)
+    list(APPEND AVOIDANCE_CPP_FILES "src/rviz_world_loader.cpp")
+  endif()
 endif()
 
 # Add avoidance lib
 add_library(avoidance SHARED "${AVOIDANCE_CPP_FILES}")
-ament_target_dependencies(avoidance Eigen3 px4_msgs ${${PROJECT_NAME}_EXPORTED_TARGETS})
+
+set(AVOIDANCE_DEPS
+  rclcpp
+  builtin_interfaces
+  perception_pcl
+  geometry_msgs
+  sensor_msgs
+  std_msgs
+  tf2
+  tf2_ros
+  Eigen3
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+)
+if(px4_msgs_FOUND)
+  list(APPEND AVOIDANCE_DEPS px4_msgs)
+  target_compile_definitions(avoidance PUBLIC AVOIDANCE_HAVE_PX4_MSGS)
+endif()
+
+ament_target_dependencies(avoidance ${AVOIDANCE_DEPS})
 target_include_directories(avoidance PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/${PROJECT_NAME}>
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>
@@ -79,11 +101,18 @@ target_link_libraries(
 )
 
 # Add node dependencies
-ament_target_dependencies(avoidance px4_msgs rclcpp Eigen3::Eigen)
+ament_target_dependencies(avoidance rclcpp Eigen3)
+if(px4_msgs_FOUND)
+  ament_target_dependencies(avoidance px4_msgs)
+endif()
 
 # Export information to downstream packages
-ament_export_dependencies(ament_cmake rclcpp rosidl_default_runtime eigen3_cmake_module Eigen3 px4_msgs geometry_msgs sensor_msgs std_msgs)
-ament_export_interfaces(export_avoidance HAS_LIBRARY_TARGET)
+set(AVOIDANCE_EXPORT_DEPS ament_cmake rclcpp rosidl_default_runtime eigen3_cmake_module Eigen3 geometry_msgs sensor_msgs std_msgs tf2 tf2_ros perception_pcl builtin_interfaces)
+if(px4_msgs_FOUND)
+  list(APPEND AVOIDANCE_EXPORT_DEPS px4_msgs)
+endif()
+ament_export_dependencies(${AVOIDANCE_EXPORT_DEPS})
+ament_export_targets(export_avoidance HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
 ament_export_libraries(avoidance)
 

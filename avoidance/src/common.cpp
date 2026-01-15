@@ -278,6 +278,7 @@ double getAngularVelocity(float desired_yaw, float curr_yaw) {
   return 0.5 * static_cast<double>(vel);
 }
 
+#ifdef AVOIDANCE_HAVE_PX4_MSGS
 void transformToTrajectory(px4_msgs::msg::VehicleTrajectoryWaypoint& obst_avoid, geometry_msgs::msg::PoseStamped pose,
                            geometry_msgs::msg::Twist vel) {
 
@@ -323,6 +324,7 @@ void fillUnusedTrajectoryPoint(px4_msgs::msg::TrajectoryWaypoint& point) {
   point.yaw = NAN;
   point.yaw_speed = NAN;
 }
+#endif
 
 // This function is a refactor of the original in the pcl library
 pcl::PointCloud<pcl::PointXYZ> removeNaNAndGetMaxima(pcl::PointCloud<pcl::PointXYZ>& cloud) {

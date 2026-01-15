@@ -48,8 +48,10 @@ class WaypointGenerator : public usm::StateMachine<PlannerState> {
 
   float curr_yaw_rad_ = NAN;
   float curr_pitch_deg_ = NAN;
-  rclcpp::Time last_time_{std::numeric_limits<long>::max()};
-  rclcpp::Time current_time_{std::numeric_limits<long>::max()};
+  // Use STEADY_TIME clock to avoid time source conflicts in simulation
+  rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
+  rclcpp::Time last_time_{0, 0, RCL_STEADY_TIME};
+  rclcpp::Time current_time_{0, 0, RCL_STEADY_TIME};
 
   float smoothing_speed_xy_{10.f};
   float smoothing_speed_z_{3.0f};

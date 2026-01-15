@@ -9,3 +9,7 @@
 coverage_html/*
 repo_total.info
 */build/*
+/src/ros2/build/*
+/src/ros2/install/*
+/src/ros2/log/*
+.vscode/

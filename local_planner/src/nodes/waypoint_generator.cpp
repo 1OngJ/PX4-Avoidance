@@ -7,8 +7,13 @@
 
 namespace avoidance {
 
-WaypointGenerator::WaypointGenerator() : usm::StateMachine<PlannerState>(PlannerState::LOITER) {}
-rclcpp::Time WaypointGenerator::getSystemTime() { rclcpp::Clock steady_clock(RCL_STEADY_TIME); return steady_clock.now(); }
+WaypointGenerator::WaypointGenerator() : usm::StateMachine<PlannerState>(PlannerState::LOITER) {
+  // Initialize times with steady clock
+  current_time_ = steady_clock_.now();
+  last_time_ = current_time_;
+}
+
+rclcpp::Time WaypointGenerator::getSystemTime() { return steady_clock_.now(); }
 
 using avoidance::PlannerState;
 std::string toString(PlannerState state) {
@@ -361,7 +366,9 @@ void WaypointGenerator::adaptSpeed(float dt) {
     setpoint_yaw_rad_ = heading_at_goal_rad_;
   } else {
     // Scale the speed by a factor that is 0 if the waypoint is outside the FOV
-    if (getState() != PlannerState::ALTITUDE_CHANGE) {
+    // Only apply this in OFFBOARD mode where we control the path
+    // In Mission mode, PX4 controls the overall path, we just modify for obstacles
+    if (getState() != PlannerState::ALTITUDE_CHANGE && nav_state_ == NavigationState::offboard) {
       PolarPoint p_pol_fcu = cartesianToPolarFCU(output_.goto_position, position_);
       p_pol_fcu.e -= curr_pitch_deg_;
       p_pol_fcu.z -= RAD_TO_DEG * curr_yaw_rad_;

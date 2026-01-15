@@ -1,0 +1,49 @@
+local_planner:
+  ros__parameters:
+    # Common
+    planner_rate_hz: 10.0
+    use_sim_time: false  # Use wall time (no sim clock needed for avoidance)
+
+    # MAVROS2 topics
+    pose_topic: /mavros/local_position/pose
+    velocity_topic: /mavros/local_position/velocity_local
+    trajectory_topic: /mavros/trajectory/desired
+    setpoint_topic: /mavros/setpoint_position/local
+
+    # Outputs - publish to MAVROS for PX4 obstacle avoidance
+    obstacle_scan_topic: /mavros/obstacle/send
+
+    # Pointcloud inputs - Using Gazebo 2D lidar point cloud
+    pointcloud_topics: ["/lidar/points"]
+    target_cloud_frame: ""  # Empty means use original frame
+
+    # Goal source
+    use_trajectory_goal: true
+    goal_x: 17.0
+    goal_y: 15.0
+    goal_z: 3.5
+
+    # Waypoint smoothing
+    smoothing_speed_xy: 10.0
+    smoothing_speed_z: 3.0
+
+    # Planner parameters (former dynamic_reconfigure)
+    max_sensor_range: 40.0
+    min_sensor_range: 0.1
+    pitch_cost_param: 0.0
+    yaw_cost_param: 0.0
+    velocity_cost_param: 0.0
+    obstacle_cost_param: 1.0
+    tree_heuristic_weight: 1.0
+
+    timeout_startup: 3.0
+    timeout_critical: 0.5
+    timeout_termination: 0.5
+
+    max_point_age_s: 0.5
+    min_num_points_per_cell: 1
+    smoothing_margin_degrees: 5.0
+
+    children_per_node: 8
+    n_expanded_nodes: 40
+    tree_node_distance: 1.0

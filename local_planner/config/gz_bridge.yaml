@@ -1,0 +1,53 @@
+# Gazebo to ROS2 bridge configuration for PX4 SITL
+# Supports: x500_lidar_2d, x500_depth
+# Usage: ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:=/path/to/gz_bridge.yaml
+
+# ============================================
+# x500_depth - Depth Camera Topics
+# ============================================
+
+# Depth camera point cloud (primary input for local_planner)
+- ros_topic_name: /camera/depth/points
+  gz_topic_name: /depth_camera/points
+  ros_type_name: sensor_msgs/msg/PointCloud2
+  gz_type_name: gz.msgs.PointCloudPacked
+  direction: GZ_TO_ROS
+
+# Depth image (for visualization/debugging)
+- ros_topic_name: /camera/depth/image_raw
+  gz_topic_name: /depth_camera
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+
+# RGB camera image
+- ros_topic_name: /camera/color/image_raw
+  gz_topic_name: /camera
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+
+# Camera info
+- ros_topic_name: /camera/camera_info
+  gz_topic_name: /camera_info
+  ros_type_name: sensor_msgs/msg/CameraInfo
+  gz_type_name: gz.msgs.CameraInfo
+  direction: GZ_TO_ROS
+
+# ============================================
+# x500_lidar_2d - 2D Lidar Topics
+# ============================================
+
+# 2D Lidar scan data
+- ros_topic_name: /lidar/scan
+  gz_topic_name: /lidar
+  ros_type_name: sensor_msgs/msg/LaserScan
+  gz_type_name: gz.msgs.LaserScan
+  direction: GZ_TO_ROS
+
+# Lidar point cloud
+- ros_topic_name: /lidar/points
+  gz_topic_name: /lidar/points
+  ros_type_name: sensor_msgs/msg/PointCloud2
+  gz_type_name: gz.msgs.PointCloudPacked
+  direction: GZ_TO_ROS

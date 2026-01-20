@@ -43,16 +43,20 @@ void LocalPlanner::setParams(const Params& params) {
   cost_params_.velocity_cost_param = params.velocity_cost_param;
   cost_params_.obstacle_cost_param = params.obstacle_cost_param;
 
-  // StarPlanner uses some of these parameters internally
-  // (tree heuristic weight, node distance, etc.)
-  // We keep the logic centralized here to avoid dynamic_reconfigure.
-  // Note: StarPlanner currently only exposes cost params; other values are
-  // stored locally and used via children_per_node_/n_expanded_nodes_.
-  // tree_heuristic_weight_ is stored in cost_params_ consumer side.
-  (void)params.tree_node_distance;
-  (void)params.tree_heuristic_weight;
+  // Pass tree search parameters to StarPlanner
+  star_planner_->setTreeParams(
+      params.children_per_node,
+      params.n_expanded_nodes,
+      params.tree_node_distance,
+      params.tree_heuristic_weight,
+      params.max_sensor_range,
+      params.min_sensor_range,
+      params.smoothing_margin_degrees);
 
-  RCLCPP_DEBUG(logger_, "\033[0;35m[OA] Params updated\033[0m");
+  RCLCPP_INFO(logger_, "\033[0;35m[OA] Params updated: children_per_node=%d, n_expanded_nodes=%d, "
+              "tree_heuristic_weight=%.1f, pitch_cost=%.1f, yaw_cost=%.1f, velocity_cost=%.1f\033[0m",
+              params.children_per_node, params.n_expanded_nodes, params.tree_heuristic_weight,
+              params.pitch_cost_param, params.yaw_cost_param, params.velocity_cost_param);
 }
 
 void LocalPlanner::setGoal(const Eigen::Vector3f& goal) {
@@ -155,74 +159,32 @@ void LocalPlanner::determineStrategy() {
 }
 
 void LocalPlanner::updateObstacleDistanceMsg(Histogram hist) {
-  sensor_msgs::msg::LaserScan msg = {};
+  sensor_msgs::msg::LaserScan msg;
   {
     const auto now = rclcpp::Clock(RCL_SYSTEM_TIME).now();
     const int64_t now_ns = now.nanoseconds();
     msg.header.stamp.sec = static_cast<int32_t>(now_ns / 1000000000LL);
     msg.header.stamp.nanosec = static_cast<uint32_t>(now_ns % 1000000000LL);
   }
-  msg.header.frame_id = "base_link";
-  
-  // PX4 OBSTACLE_DISTANCE format:
-  // - 72 sectors, 5° each, covering 360°
-  // - Index 0 = forward (0°)
-  // - Index increases clockwise (right side: 0->35, left side from rear: 36->71)
-  // - Index 0 = 0° (front), Index 18 = 90° (right), Index 36 = 180° (rear), Index 54 = 270° (left)
-  const int PX4_SECTORS = 72;
-  const float PX4_SECTOR_DEG = 5.0f;
-  
-  msg.angle_increment = PX4_SECTOR_DEG * M_PI / 180.0f;
+  msg.header.frame_id = "local_origin";
+  msg.angle_increment = static_cast<float>(ALPHA_RES) * M_PI / 180.0f;
   msg.angle_min = 0.0f;  // Start from forward (0°)
-  msg.angle_max = (PX4_SECTORS - 1) * msg.angle_increment;  // 355°
+  msg.angle_max = 2 * M_PI;  // 360°
   msg.time_increment = 0.0f;
   msg.scan_time = 0.1f;  // 10 Hz
   msg.range_min = min_sensor_range_;
   msg.range_max = max_sensor_range_;
-  msg.ranges.reserve(PX4_SECTORS);
+  msg.ranges.reserve(GRID_LENGTH_Z);
   
-  const int camera_offset_bins = static_cast<int>(std::round(camera_yaw_offset_deg_ / ALPHA_RES));
-  
-  for (int i = 0; i < PX4_SECTORS; ++i) {
-    // PX4 index i corresponds to angle i * 5° clockwise from front
-    // Convert to histogram index:
-    // - PX4 angle = i * 5° (0° = front, clockwise positive)
-    // - Histogram uses: azimuth = atan2(x, y), where 0° = North (+Y), 90° = East (+X)
-    // - But camera data: need camera_offset correction
-    
+  for (int i = 0; i < GRID_LENGTH_Z; ++i) {
     // PX4 body frame angle (clockwise from front)
-    float px4_angle_deg = i * PX4_SECTOR_DEG;
-    
-    // Convert PX4 angle to histogram index
-    // Histogram: index 0 = -180°, index 30 = 0° (for 60 bins, 6° each)
-    // PX4 0° (front) should map to histogram index that represents front after camera correction
-    // 
-    // histogram_angle = px4_angle - 180° (to shift 0° front to histogram's 0° reference)
-    // Then add camera offset
-    float hist_angle_deg = px4_angle_deg + camera_yaw_offset_deg_ - 180.0f;
-    
-    // Normalize to [-180, 180)
-    while (hist_angle_deg >= 180.0f) hist_angle_deg -= 360.0f;
-    while (hist_angle_deg < -180.0f) hist_angle_deg += 360.0f;
-    
-    // Convert angle to histogram index
-    int hist_index = static_cast<int>(std::round((hist_angle_deg + 180.0f) / ALPHA_RES));
-    hist_index = hist_index % GRID_LENGTH_Z;
-    if (hist_index < 0) hist_index += GRID_LENGTH_Z;
-    
-    float dist = hist.get_dist(0, hist_index);
+    int j = (i + GRID_LENGTH_Z / 2) % GRID_LENGTH_Z;
+    float dist = hist.get_dist(0, j);
 
-    // For 360° sensors (like 2D/3D lidar) or when FOV is not set, skip FOV check
-    // FOV check is only meaningful for limited-FOV sensors like depth cameras
-    // Mid-360 and similar lidars have h_fov close to 360°, but updateFOVFromMaxima 
-    // might not detect it correctly, so we use a lower threshold (180°)
-    bool is_360_sensor = fov_fcu_frame_.empty() || 
-                         (fov_fcu_frame_.size() == 1 && fov_fcu_frame_[0].h_fov_deg >= 180.0f);
-    
-    if (is_360_sensor || histogramIndexYawInsideFOV(fov_fcu_frame_, hist_index, position_, yaw_fcu_frame_deg_)) {
+    if (histogramIndexYawInsideFOV(fov_fcu_frame_, j, position_, yaw_fcu_frame_deg_)) {
       msg.ranges.push_back(dist > min_sensor_range_ ? dist : max_sensor_range_ + 0.01f);
     } else {
-      msg.ranges.push_back(NAN);
+      msg.ranges.push_back(max_sensor_range_ + 1.00f);
     }
   }
 
@@ -230,14 +192,14 @@ void LocalPlanner::updateObstacleDistanceMsg(Histogram hist) {
 }
 
 void LocalPlanner::updateObstacleDistanceMsg() {
-  sensor_msgs::msg::LaserScan msg = {};
+  sensor_msgs::msg::LaserScan msg ;
   {
     const auto now = rclcpp::Clock(RCL_SYSTEM_TIME).now();
     const int64_t now_ns = now.nanoseconds();
     msg.header.stamp.sec = static_cast<int32_t>(now_ns / 1000000000LL);
     msg.header.stamp.nanosec = static_cast<uint32_t>(now_ns % 1000000000LL);
   }
-  msg.header.frame_id = "base_link";  // PX4 expects body frame
+  msg.header.frame_id = "MAV_FRAME_BODY_FRD";  // PX4 expects body frame
   msg.angle_increment = static_cast<float>(ALPHA_RES) * M_PI / 180.0f;
   msg.angle_min = -M_PI;  // -180 degrees
   msg.angle_max = M_PI - msg.angle_increment;  // +180 degrees (exclusive)

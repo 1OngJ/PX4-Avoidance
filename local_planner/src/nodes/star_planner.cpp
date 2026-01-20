@@ -24,6 +24,23 @@ void StarPlanner::SetStarParams(const std::shared_ptr<LocalPlanner::LocalPlanner
 
 void StarPlanner::setParams(costParameters cost_params) { cost_params_ = cost_params; }
 
+void StarPlanner::setTreeParams(int children_per_node, int n_expanded_nodes, 
+                                float tree_node_distance, float tree_heuristic_weight,
+                                float max_sensor_range, float min_sensor_range,
+                                float smoothing_margin_degrees) {
+  children_per_node_ = children_per_node;
+  n_expanded_nodes_ = n_expanded_nodes;
+  tree_node_distance_ = tree_node_distance;
+  tree_heuristic_weight_ = tree_heuristic_weight;
+  max_sensor_range_ = max_sensor_range;
+  min_sensor_range_ = min_sensor_range;
+  smoothing_margin_degrees_ = smoothing_margin_degrees;
+  
+  RCLCPP_DEBUG(star_planner_logger_, 
+               "\033[0;35m[SP] Tree params set: children=%d, expanded=%d, dist=%.2f, heuristic=%.2f\033[0m",
+               children_per_node_, n_expanded_nodes_, tree_node_distance_, tree_heuristic_weight_);
+}
+
 void StarPlanner::setPose(const Eigen::Vector3f& pos, const Eigen::Vector3f& vel) {
   position_ = pos;
   velocity_ = vel;

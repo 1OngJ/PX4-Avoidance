@@ -23,6 +23,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 find_package(PythonInterp REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
@@ -60,7 +61,7 @@ set(LOCAL_PLANNER_CPP_FILES
   "src/nodes/tree_node.cpp"
   "src/nodes/star_planner.cpp"
   "src/nodes/planner_functions.cpp"
-  #"src/nodes/local_planner_visualization.cpp"
+  "src/nodes/local_planner_visualization.cpp"
   "src/utils/trajectory_simulator.cpp"
 )
 
@@ -76,6 +77,7 @@ ament_target_dependencies(local_planner
   nav_msgs
   sensor_msgs
   std_msgs
+  visualization_msgs
   pcl_conversions
 )
 target_include_directories(local_planner PUBLIC
@@ -158,10 +160,28 @@ install(TARGETS local_planner_node
         RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
+## MAVROS TF Publisher - bridges MAVROS pose to TF tree
+add_executable(mavros_tf_publisher
+  src/nodes/mavros_tf_publisher.cpp
+)
+target_link_libraries(mavros_tf_publisher
+  ${Boost_LIBRARIES}
+)
+ament_target_dependencies(mavros_tf_publisher
+  rclcpp
+  geometry_msgs
+  tf2
+  tf2_ros
+)
+install(TARGETS mavros_tf_publisher
+        RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
 # Install launch files
 install(DIRECTORY
   launch
   params
+  resource
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -169,6 +189,7 @@ install(DIRECTORY
 install(PROGRAMS
   test/test_node_interfaces.py
   test/test_message_flow.py
+  test/test_mission_avoidance.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

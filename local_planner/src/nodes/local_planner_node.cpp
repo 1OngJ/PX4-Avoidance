@@ -27,6 +27,12 @@ LocalPlannerNode::LocalPlannerNode(const rclcpp::NodeOptions& options)
   planner_.setDefaultPx4Parameters();
   planner_.setParams(planner_params_);
   waypoint_generator_.setSmoothingSpeed(static_cast<float>(smoothing_speed_xy_), static_cast<float>(smoothing_speed_z_));
+  
+  // Initialize visualization
+  if (enable_visualization_) {
+    visualization_.initializePublishers(this);
+    RCLCPP_INFO(this->get_logger(), "Visualization enabled");
+  }
 }
 
 void LocalPlannerNode::declareAndLoadParams() {
@@ -66,6 +72,7 @@ void LocalPlannerNode::declareAndLoadParams() {
   this->declare_parameter<int>("n_expanded_nodes", planner_params_.n_expanded_nodes);
   this->declare_parameter<double>("tree_node_distance", planner_params_.tree_node_distance);
   this->declare_parameter<double>("camera_yaw_offset_deg", planner_params_.camera_yaw_offset_deg);
+  this->declare_parameter<bool>("enable_visualization", enable_visualization_);
 
   // Fetch
   planner_rate_hz_ = this->get_parameter("planner_rate_hz").as_double();
@@ -102,6 +109,7 @@ void LocalPlannerNode::declareAndLoadParams() {
   planner_params_.n_expanded_nodes = this->get_parameter("n_expanded_nodes").as_int();
   planner_params_.tree_node_distance = static_cast<float>(this->get_parameter("tree_node_distance").as_double());
   planner_params_.camera_yaw_offset_deg = static_cast<float>(this->get_parameter("camera_yaw_offset_deg").as_double());
+  enable_visualization_ = this->get_parameter("enable_visualization").as_bool();
 
   goal_ = Eigen::Vector3f(static_cast<float>(goal_x_), static_cast<float>(goal_y_), static_cast<float>(goal_z_));
   prev_goal_ = goal_;
@@ -285,8 +293,10 @@ void LocalPlannerNode::onTimer() {
     try {
       // Transform cloud into desired planning frame
       if (!target_cloud_frame_.empty() && clouds[i].header.frame_id != target_cloud_frame_) {
+        // Use Time(0) to get the latest available transform instead of trying to match timestamps
+        // This is necessary because Gazebo sim time and system time may differ significantly
         const auto tf = tf_buffer_.lookupTransform(target_cloud_frame_, clouds[i].header.frame_id,
-                                                   rclcpp::Time(clouds[i].header.stamp), 100ms);
+                                                   rclcpp::Time(0), 100ms);
         tf2::doTransform(clouds[i], cloud_in_target, tf);
       } else {
         cloud_in_target = clouds[i];
@@ -387,6 +397,11 @@ void LocalPlannerNode::onTimer() {
   rclcpp::Clock system_clock(RCL_SYSTEM_TIME);
   scan.header.stamp = system_clock.now();
   obstacle_scan_pub_->publish(scan);
+
+  // Visualization
+  if (enable_visualization_) {
+    visualization_.visualizePlannerData(planner_, wps.smoothed_goto_position, wps.adapted_goto_position, position, orientation);
+  }
 }
 
 }  // namespace avoidance

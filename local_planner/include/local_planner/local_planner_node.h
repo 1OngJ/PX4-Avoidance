@@ -21,6 +21,7 @@
 
 #include "local_planner/local_planner.h"
 #include "local_planner/waypoint_generator.h"
+#include "local_planner/local_planner_visualization.h"
 
 namespace avoidance {
 
@@ -96,6 +97,8 @@ class LocalPlannerNode final : public rclcpp::Node {
   // Core
   LocalPlanner planner_;
   WaypointGenerator waypoint_generator_;
+  LocalPlannerVisualization visualization_;
+  bool enable_visualization_{true};
 
   // ROS interfaces
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;

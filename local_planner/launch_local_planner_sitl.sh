@@ -12,6 +12,13 @@
 #   ./launch_local_planner_sitl.sh depth   # Force depth camera mode
 #   ./launch_local_planner_sitl.sh lidar   # Force lidar mode
 
+# Ensure script is run with bash (not sh)
+if [ -z "$BASH_VERSION" ]; then
+    echo "ERROR: This script must be run with bash, not sh"
+    echo "Usage: bash $0 $*  OR  ./$0 $*"
+    exit 1
+fi
+
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -99,15 +106,28 @@ if ! ros2 node list 2>/dev/null | grep -q "local_planner"; then
 fi
 echo "   local_planner OK"
 
-# Configure MAVROS obstacle plugin for PX4
-echo "[4/5] Configuring MAVROS obstacle plugin..."
+# Configure MAVROS for PX4
+echo "[4/5] Configuring MAVROS parameters..."
+
+# Enable TF broadcasting from MAVROS (critical for obstacle detection)
+if ros2 node list 2>/dev/null | grep -q "/mavros"; then
+    ros2 param set /mavros/local_position tf.send true 2>/dev/null && \
+        echo "   Set tf.send=true (enables TF broadcast)" || \
+        echo "   WARNING: Could not set tf.send parameter"
+else
+    echo "   WARNING: MAVROS node not found. Make sure MAVROS is running."
+fi
+
+# Configure MAVROS obstacle plugin
 if ros2 node list 2>/dev/null | grep -q "/mavros/obstacle"; then
-    ros2 param set /mavros/obstacle mav_frame "BODY_FWD" 2>/dev/null && \
-        echo "   Set mav_frame=BODY_FWD" || \
+    ros2 param set /mavros/obstacle/send mav_frame "MAV_FRAME_BODY_FRD" 2>/dev/null && \
+        echo "   Set mav_frame=MAV_FRAME_BODY_FRD" || \
         echo "   WARNING: Could not set mav_frame parameter"
 else
     echo "   WARNING: MAVROS obstacle node not found. Make sure MAVROS is running."
 fi
+
+ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.03 --z 0.242 --roll 0 --pitch 0 --yaw 0 --frame-id base_link --child-frame-id x500_depth_0/OakD-Lite/base_link/StereoOV7251 &
 
 echo "[5/5] System ready!"
 echo ""

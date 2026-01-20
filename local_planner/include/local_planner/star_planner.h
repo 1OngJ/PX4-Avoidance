@@ -58,6 +58,21 @@ class StarPlanner {
   void setParams(costParameters cost_params);
 
   /**
+  * @brief     setter method for tree search parameters
+  * @param[in] children_per_node, number of child nodes to expand per node
+  * @param[in] n_expanded_nodes, maximum number of nodes to expand
+  * @param[in] tree_node_distance, distance between tree nodes
+  * @param[in] tree_heuristic_weight, weight for heuristic in A* search
+  * @param[in] max_sensor_range, maximum sensor detection range
+  * @param[in] min_sensor_range, minimum sensor detection range
+  * @param[in] smoothing_margin_degrees, margin for cost matrix smoothing
+  **/
+  void setTreeParams(int children_per_node, int n_expanded_nodes, 
+                     float tree_node_distance, float tree_heuristic_weight,
+                     float max_sensor_range, float min_sensor_range,
+                     float smoothing_margin_degrees);
+
+  /**
   * @brief     setter method for star_planner pointcloud
   * @param[in] cloud, processed data already cropped and combined with history
   **/

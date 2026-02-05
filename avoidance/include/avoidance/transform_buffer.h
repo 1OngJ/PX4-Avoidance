@@ -2,14 +2,15 @@
 
 #include <float.h>
 #include <math.h>
+#include <rclcpp/rclcpp.hpp>
+#include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
+#include <tf2/LinearMath/Transform.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <deque>
 #include <mutex>
 #include <string>
 #include <unordered_map>
-
-#include <avoidance/common.h>
 
 namespace avoidance {
 
@@ -49,8 +50,7 @@ class TransformBuffer {
   mutable std::mutex mutex_;
   rclcpp::Duration buffer_size_;
   rclcpp::Time startup_time_;
-
-  rclcpp::Logger tf_logger_ = rclcpp::get_logger("tf_buffer");
+  rclcpp::Clock clock_{RCL_SYSTEM_TIME};
 
   /**
   * @brief      gets a key word from two frame names to identify a transform
@@ -69,7 +69,8 @@ class TransformBuffer {
   *                                 otherwise transform remains unchanged
   * @returns    bool, true if the transform was correctly interpolated
   **/
-  bool interpolateTransform(const geometry_msgs::msg::TransformStamped& tf_earlier, const geometry_msgs::msg::TransformStamped& tf_later,
+  bool interpolateTransform(const geometry_msgs::msg::TransformStamped& tf_earlier,
+                            const geometry_msgs::msg::TransformStamped& tf_later,
                             geometry_msgs::msg::TransformStamped& transform) const;
 
   /**
@@ -79,5 +80,5 @@ class TransformBuffer {
   **/
   void print(const log_level& level, const std::string& msg) const;
 };
-}
-}
+}  // namespace tf_buffer
+}  // namespace avoidance

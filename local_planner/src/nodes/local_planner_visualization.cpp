@@ -70,6 +70,9 @@ void LocalPlannerVisualization::visualizePlannerData(const LocalPlanner& planner
   // publish the FOV
   publishFOV(planner.getFOV(), planner.getSensorRange());
 
+  publishDataImages(planner.histogram_image_data_, planner.cost_image_data_,newest_waypoint_position,
+                       newest_adapted_waypoint_position,newest_position,newest_orientation);
+
   // range scan
   publishRangeScan(planner.distance_data_, newest_position);
 }

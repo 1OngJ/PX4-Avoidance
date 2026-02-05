@@ -1,68 +1,74 @@
 #include "avoidance/transform_buffer.h"
 
-#include <chrono>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Vector3.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 namespace avoidance {
 
 namespace tf_buffer {
 
-TransformBuffer::TransformBuffer(float buffer_size_s)
-    : buffer_size_(rclcpp::Duration(std::chrono::duration<double>(buffer_size_s))) {
-  startup_time_ = rclcpp::Clock().now();
-};
+TransformBuffer::TransformBuffer(float buffer_size_s) 
+    : buffer_size_(std::chrono::nanoseconds(static_cast<int64_t>(buffer_size_s * 1e9))) {
+  startup_time_ = clock_.now();
+}
 
 std::string TransformBuffer::getKey(const std::string& source_frame, const std::string& target_frame) const {
   return source_frame + "_to_" + target_frame;
 }
 
-bool TransformBuffer::interpolateTransform(const geometry_msgs::msg::TransformStamped& tf_earlier, const geometry_msgs::msg::TransformStamped& tf_later,
+bool TransformBuffer::interpolateTransform(const geometry_msgs::msg::TransformStamped& tf_earlier,
+                                           const geometry_msgs::msg::TransformStamped& tf_later,
                                            geometry_msgs::msg::TransformStamped& transform) const {
   // check if the requested timestamp lies between the two given transforms
-  if (rclcpp::Time(transform.header.stamp) > rclcpp::Time(tf_later.header.stamp) || rclcpp::Time(transform.header.stamp) < rclcpp::Time(tf_earlier.header.stamp)) {
+  rclcpp::Time tf_later_time(tf_later.header.stamp);
+  rclcpp::Time tf_earlier_time(tf_earlier.header.stamp);
+  rclcpp::Time transform_time(transform.header.stamp);
+  
+  if (transform_time > tf_later_time || transform_time < tf_earlier_time) {
     return false;
   }
 
-  const rclcpp::Duration timeBetween = rclcpp::Time(tf_later.header.stamp) - rclcpp::Time(tf_earlier.header.stamp);
-  const rclcpp::Duration timeAfterEarlier = rclcpp::Time(transform.header.stamp) - rclcpp::Time(tf_earlier.header.stamp);
-  const float tau = static_cast<float>(timeAfterEarlier.nanoseconds()) / timeBetween.nanoseconds();
+  rclcpp::Duration timeBetween = tf_later_time - tf_earlier_time;
+  rclcpp::Duration timeAfterEarlier = transform_time - tf_earlier_time;
+  float tau = static_cast<float>(timeAfterEarlier.nanoseconds()) / timeBetween.nanoseconds();
 
-  const tf2::Vector3 tf_earlier_translation(tf_earlier.transform.translation.x, tf_earlier.transform.translation.y,
-                                           tf_earlier.transform.translation.z);
-  const tf2::Vector3 tf_later_translation(tf_later.transform.translation.x, tf_later.transform.translation.y,
-                                         tf_later.transform.translation.z);
+  // Interpolate translation
+  transform.transform.translation.x = 
+      tf_earlier.transform.translation.x * (1.f - tau) + tf_later.transform.translation.x * tau;
+  transform.transform.translation.y = 
+      tf_earlier.transform.translation.y * (1.f - tau) + tf_later.transform.translation.y * tau;
+  transform.transform.translation.z = 
+      tf_earlier.transform.translation.z * (1.f - tau) + tf_later.transform.translation.z * tau;
 
-  const tf2::Quaternion tf_earlier_rotation(tf_earlier.transform.rotation.x, tf_earlier.transform.rotation.y,
-                                           tf_earlier.transform.rotation.z, tf_earlier.transform.rotation.w);
-  const tf2::Quaternion tf_later_rotation(tf_later.transform.rotation.x, tf_later.transform.rotation.y,
-                                         tf_later.transform.rotation.z, tf_later.transform.rotation.w);
+  // Interpolate rotation using slerp
+  tf2::Quaternion q_earlier, q_later, q_result;
+  tf2::fromMsg(tf_earlier.transform.rotation, q_earlier);
+  tf2::fromMsg(tf_later.transform.rotation, q_later);
+  q_result = q_earlier.slerp(q_later, tau);
+  transform.transform.rotation = tf2::toMsg(q_result);
 
-  const tf2::Vector3 translation = tf_earlier_translation * (1.f - tau) + tf_later_translation * tau;
-  const tf2::Quaternion rotation = tf_earlier_rotation.slerp(tf_later_rotation, tau);
-
-  transform.transform.translation = avoidance::toVector3Msg(translation);
-  transform.transform.rotation.x = rotation.x();
-  transform.transform.rotation.y = rotation.y();
-  transform.transform.rotation.z = rotation.z();
-  transform.transform.rotation.w = rotation.w();
   return true;
 }
 
 bool TransformBuffer::insertTransform(const std::string& source_frame, const std::string& target_frame,
                                       geometry_msgs::msg::TransformStamped transform) {
   std::lock_guard<std::mutex> lck(mutex_);
-  std::unordered_map<std::string, std::deque<geometry_msgs::msg::TransformStamped>>::iterator iterator =
-      buffer_.find(getKey(source_frame, target_frame));
+  auto iterator = buffer_.find(getKey(source_frame, target_frame));
   if (iterator == buffer_.end()) {
     std::deque<geometry_msgs::msg::TransformStamped> empty_deque;
     buffer_[getKey(source_frame, target_frame)] = empty_deque;
     iterator = buffer_.find(getKey(source_frame, target_frame));
   }
 
+  rclcpp::Time transform_time(transform.header.stamp);
+  
   // check if the given transform is newer than the last buffered one
-  if (iterator->second.size() == 0 || rclcpp::Time(iterator->second.back().header.stamp) < rclcpp::Time(transform.header.stamp)) {
+  if (iterator->second.size() == 0 || 
+      rclcpp::Time(iterator->second.back().header.stamp) < transform_time) {
     iterator->second.push_back(transform);
     // remove transforms which are outside the buffer size
-    while (rclcpp::Time(transform.header.stamp) - rclcpp::Time(iterator->second.front().header.stamp) > buffer_size_) {
+    while ((transform_time - rclcpp::Time(iterator->second.front().header.stamp)) > buffer_size_) {
       iterator->second.pop_front();
     }
     return true;
@@ -73,8 +79,7 @@ bool TransformBuffer::insertTransform(const std::string& source_frame, const std
 bool TransformBuffer::getTransform(const std::string& source_frame, const std::string& target_frame,
                                    const rclcpp::Time& time, geometry_msgs::msg::TransformStamped& transform) const {
   std::lock_guard<std::mutex> lck(mutex_);
-  std::unordered_map<std::string, std::deque<geometry_msgs::msg::TransformStamped>>::const_iterator iterator =
-      buffer_.find(getKey(source_frame, target_frame));
+  auto iterator = buffer_.find(getKey(source_frame, target_frame));
   if (iterator == buffer_.end()) {
     print(log_level::error, "TF Buffer: could not retrieve requested transform from buffer, unregistered");
     return false;
@@ -82,17 +87,19 @@ bool TransformBuffer::getTransform(const std::string& source_frame, const std::s
     print(log_level::warn, "TF Buffer: could not retrieve requested transform from buffer, buffer is empty");
     return false;
   } else {
-    if (rclcpp::Time(iterator->second.back().header.stamp) < time) {
+    rclcpp::Time back_time(iterator->second.back().header.stamp);
+    rclcpp::Time front_time(iterator->second.front().header.stamp);
+    
+    if (back_time < time) {
       print(log_level::debug, "TF Buffer: could not retrieve requested transform from buffer, tf has not yet arrived");
       return false;
-    } else if (rclcpp::Time(iterator->second.front().header.stamp) > time) {
+    } else if (front_time > time) {
       print(log_level::warn,
             "TF Buffer: could not retrieve requested transform from buffer, tf has already been dropped from buffer");
       return false;
     } else {
       const geometry_msgs::msg::TransformStamped* previous = &iterator->second.back();
-      for (std::deque<geometry_msgs::msg::TransformStamped>::const_reverse_iterator it = ++iterator->second.rbegin();
-           it != iterator->second.rend(); ++it) {
+      for (auto it = ++iterator->second.rbegin(); it != iterator->second.rend(); ++it) {
         if (rclcpp::Time(it->header.stamp) <= time) {
           const geometry_msgs::msg::TransformStamped& tf_earlier = *it;
           const geometry_msgs::msg::TransformStamped& tf_later = *previous;
@@ -112,26 +119,26 @@ bool TransformBuffer::getTransform(const std::string& source_frame, const std::s
 }
 
 void TransformBuffer::print(const log_level& level, const std::string& msg) const {
-  if (rclcpp::Clock().now() - startup_time_ > rclcpp::Duration(std::chrono::seconds(3))) {
+  if ((clock_.now() - startup_time_) > rclcpp::Duration(3, 0)) {
     switch (level) {
       case error: {
-        RCLCPP_ERROR(tf_logger_, "%s", msg.c_str());
+        RCLCPP_ERROR(rclcpp::get_logger("transform_buffer"), "%s", msg.c_str());
         break;
       }
       case warn: {
-        RCLCPP_WARN(tf_logger_, "%s", msg.c_str());
+        RCLCPP_WARN(rclcpp::get_logger("transform_buffer"), "%s", msg.c_str());
         break;
       }
       case info: {
-        RCLCPP_INFO(tf_logger_, "%s", msg.c_str());
+        RCLCPP_INFO(rclcpp::get_logger("transform_buffer"), "%s", msg.c_str());
         break;
       }
       case debug: {
-        RCLCPP_DEBUG(tf_logger_, "%s", msg.c_str());
+        RCLCPP_DEBUG(rclcpp::get_logger("transform_buffer"), "%s", msg.c_str());
         break;
       }
     }
   }
 }
-}
-}
+}  // namespace tf_buffer
+}  // namespace avoidance

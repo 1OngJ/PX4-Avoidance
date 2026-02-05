@@ -3,21 +3,22 @@
 
 #include <rclcpp/rclcpp.hpp>
 
+#include <mavros_msgs/msg/param_value.hpp>
+#include <mavros_msgs/srv/param_get.hpp>
+#include <mavros_msgs/msg/waypoint_list.hpp>
 #include "avoidance/common.h"
+#include "mavros_msgs/msg/companion_process_status.hpp"
 
-#ifdef AVOIDANCE_HAVE_PX4_MSGS
-#include <px4_msgs/msg/telemetry_status.hpp>
-#endif
-
-#include <chrono>
+#include <thread>
+#include <memory>
 
 namespace avoidance {
 
-#ifdef AVOIDANCE_HAVE_PX4_MSGS
-class AvoidanceNode {
+class AvoidanceNode : public rclcpp::Node {
  public:
-  AvoidanceNode();
+  AvoidanceNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
   ~AvoidanceNode();
+  
   /**
   * @brief      check healthiness of the avoidance system to trigger failsafe in
   *             the FCU
@@ -30,55 +31,62 @@ class AvoidanceNode {
   **/
   void checkFailsafe(rclcpp::Duration since_last_cloud, rclcpp::Duration since_start, bool& hover);
 
+  ModelParameters getPX4Parameters() const;
+  float getMissionItemSpeed() const { return mission_item_speed_; }
   MAV_STATE getSystemStatus();
 
-  void setSystemStatus(MAV_STATE state);
+  /**
+  * @brief     polls PX4 Firmware paramters every 30 seconds
+  **/
+  void checkPx4Parameters();
 
+  void setSystemStatus(MAV_STATE state);
   void init();
 
-  void px4ParamsInit();
+  /**
+  * @brief     callaback with the list of FCU Mission Items
+  * @param[in] msg, list of mission items
+  **/
+  void missionCallback(const mavros_msgs::msg::WaypointList::SharedPtr msg);
 
  private:
-  // telemetry_status Publisher
-  rclcpp::Publisher<px4_msgs::msg::TelemetryStatus>::SharedPtr telemetry_status_pub_;
+  rclcpp::Publisher<mavros_msgs::msg::CompanionProcessStatus>::SharedPtr mavros_system_status_pub_;
 
-  rclcpp::executors::MultiThreadedExecutor cmdloop_executor_;
-  rclcpp::executors::MultiThreadedExecutor statusloop_executor_;
+  rclcpp::Subscription<mavros_msgs::msg::ParamValue>::SharedPtr px4_param_sub_;
+  rclcpp::Subscription<mavros_msgs::msg::WaypointList>::SharedPtr mission_sub_;
+
+  rclcpp::Client<mavros_msgs::srv::ParamGet>::SharedPtr get_px4_param_client_;
 
   rclcpp::TimerBase::SharedPtr cmdloop_timer_;
   rclcpp::TimerBase::SharedPtr statusloop_timer_;
 
   MAV_STATE companion_state_ = MAV_STATE::MAV_STATE_STANDBY;
 
-  // PX4 Firmware parameters
-  ModelParameters px4_;
+  ModelParameters px4_;  // PX4 Firmware paramters
+  std::unique_ptr<std::mutex> param_cb_mutex_;
 
-  std::chrono::milliseconds cmdloop_dt_;
-  std::chrono::milliseconds statusloop_dt_;
+  std::thread worker_;
 
-  rclcpp::Duration timeout_termination_;
-  rclcpp::Duration timeout_critical_;
-  rclcpp::Duration timeout_startup_;
+  double cmdloop_dt_;
+  double statusloop_dt_;
+  double timeout_termination_;
+  double timeout_critical_;
+  double timeout_startup_;
 
   bool position_received_;
   bool should_exit_;
 
   float mission_item_speed_;
 
+  void cmdLoopCallback();
+  void statusLoopCallback();
   void publishSystemStatus();
 
-  rclcpp::Logger avoidance_node_logger_ = rclcpp::get_logger("avoidance_node");
-
+  /**
+  * @brief     callaback with the list of FCU parameters
+  * @param[in] msg, list of paramters
+  **/
+  void px4ParamsCallback(const mavros_msgs::msg::ParamValue::SharedPtr msg);
 };
-
-#else
-
-class AvoidanceNode {
- public:
-  AvoidanceNode() = delete;
-  ~AvoidanceNode() = delete;
-};
-
-#endif
-}
+}  // namespace avoidance
 #endif  // AVOIDANCE_AVOIDANCE_NODE_H

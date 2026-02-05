@@ -111,9 +111,19 @@ echo "[4/5] Configuring MAVROS parameters..."
 
 # Enable TF broadcasting from MAVROS (critical for obstacle detection)
 if ros2 node list 2>/dev/null | grep -q "/mavros"; then
+    # Enable TF broadcast for local_position
     ros2 param set /mavros/local_position tf.send true 2>/dev/null && \
-        echo "   Set tf.send=true (enables TF broadcast)" || \
+        echo "   Set local_position/tf.send=true (enables TF broadcast)" || \
         echo "   WARNING: Could not set tf.send parameter"
+    
+    # Set frame_id for local_position
+    ros2 param set /mavros/local_position tf.frame_id "map" 2>/dev/null && \
+        echo "   Set local_position/tf.frame_id=map" || \
+        echo "   WARNING: Could not set frame_id parameter"
+    
+    ros2 param set /mavros/local_position tf.child_frame_id "base_link" 2>/dev/null && \
+        echo "   Set local_position/tf.child_frame_id=base_link" || \
+        echo "   WARNING: Could not set child_frame_id parameter"
 else
     echo "   WARNING: MAVROS node not found. Make sure MAVROS is running."
 fi
@@ -124,12 +134,21 @@ if ros2 node list 2>/dev/null | grep -q "/mavros/obstacle"; then
         echo "   Set mav_frame=MAV_FRAME_BODY_FRD" || \
         echo "   WARNING: Could not set mav_frame parameter"
 else
-    echo "   WARNING: MAVROS obstacle node not found. Make sure MAVROS is running."
+    echo "   WARNING: MAVROS obstacle node not found."
 fi
 
-ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.03 --z 0.242 --roll 0 --pitch 0 --yaw 0 --frame-id base_link --child-frame-id x500_depth_0/OakD-Lite/base_link/StereoOV7251 &
+# Static TF: base_link -> camera_frame
+echo ""
+echo "[5/6] Publishing static TF transforms..."
 
-echo "[5/5] System ready!"
+# Static TF: base_link -> camera_frame
+echo ""
+echo "[5/6] Publishing static TF transforms..."
+ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.03 --z 0.242 --roll 0 --pitch 0 --yaw 0 --frame-id base_link --child-frame-id x500_depth_0/OakD-Lite/base_link/StereoOV7251 &
+TF_PID=$!
+#ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.03 --z 0.242 --roll 0 --pitch 0 --yaw 1.745329252 --frame-id base_link --child-frame-id x500_lidar_2d_0/lidar_link/mid360 &
+
+echo "[6/6] System ready!"
 echo ""
 echo "=== Configuration ==="
 echo "Model: $MODEL_TYPE"

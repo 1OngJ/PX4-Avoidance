@@ -51,7 +51,7 @@ def generate_launch_description():
         package='local_planner',
         executable='local_planner_node',
         name='local_planner',
-        output='screen',
+        output='log',
         parameters=[LaunchConfiguration('params_file')],
         remappings=[
             # Add any topic remappings here if needed
@@ -63,7 +63,7 @@ def generate_launch_description():
         package='rviz2',
         executable='rviz2',
         name='rviz2',
-        output='screen',
+        output='log',
         arguments=['-d', LaunchConfiguration('rviz_config')],
         condition=IfCondition(LaunchConfiguration('enable_rviz'))
     )

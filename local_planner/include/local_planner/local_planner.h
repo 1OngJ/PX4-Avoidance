@@ -34,7 +34,7 @@ class LocalPlanner {
  private:
   int children_per_node_;
   int n_expanded_nodes_;
-  int min_num_points_per_cell_ = 3;
+  int min_num_points_per_cell_ = 25;
 
   float min_sensor_range_ = 0.2f;
   float max_sensor_range_ = 12.0f;
@@ -166,23 +166,23 @@ class LocalPlanner {
   * @param     level, bitmask to group together reconfigurable parameters
   **/
   struct Params {
-    float max_sensor_range = 15.0f;
-    float min_sensor_range = 0.2f;
-    float pitch_cost_param = 25.0f;
-    float yaw_cost_param = 3.0f;
+    float max_sensor_range = 19.0f;
+    float min_sensor_range = 1.5f;
+    float pitch_cost_param = 15.0f;
+    float yaw_cost_param = 10.0f;
     float velocity_cost_param = 6000.0f;
-    float obstacle_cost_param = 8.5f;
+    float obstacle_cost_param = 3.0f;
     float tree_heuristic_weight = 35.0f;
     double timeout_startup = 5.0;
     double timeout_critical = 0.5;
     double timeout_termination = 15.0;
-    float max_point_age_s = 20.0f;
-    int min_num_points_per_cell = 1;
-    float smoothing_margin_degrees = 40.0f;
+    float max_point_age_s = 0.5f;
+    int min_num_points_per_cell = 25;
+    float smoothing_margin_degrees = 30.0f;
     int children_per_node = 8;
-    int n_expanded_nodes = 40;
-    float tree_node_distance = 2.0f;
-    float camera_yaw_offset_deg = 84.0f;  // Camera frame to body frame offset
+    int n_expanded_nodes = 80;
+    float tree_node_distance = 0.8f;
+    float camera_yaw_offset_deg = 0.0f;  // Camera frame to body frame offset
   };
 
   void setParams(const Params& params);

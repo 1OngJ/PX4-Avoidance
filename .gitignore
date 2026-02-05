@@ -13,3 +13,6 @@ repo_total.info
 /src/ros2/install/*
 /src/ros2/log/*
 .vscode/
+/build
+/install
+/log

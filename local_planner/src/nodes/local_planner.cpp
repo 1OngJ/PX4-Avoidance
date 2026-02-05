@@ -160,18 +160,15 @@ void LocalPlanner::determineStrategy() {
 
 void LocalPlanner::updateObstacleDistanceMsg(Histogram hist) {
   sensor_msgs::msg::LaserScan msg;
-  {
-    const auto now = rclcpp::Clock(RCL_SYSTEM_TIME).now();
-    const int64_t now_ns = now.nanoseconds();
-    msg.header.stamp.sec = static_cast<int32_t>(now_ns / 1000000000LL);
-    msg.header.stamp.nanosec = static_cast<uint32_t>(now_ns % 1000000000LL);
-  }
+  // {
+  //   const auto now = rclcpp::Clock(RCL_SYSTEM_TIME).now();
+  //   const int64_t now_ns = now.nanoseconds();
+  //   msg.header.stamp.sec = static_cast<int32_t>(now_ns / 1000000000LL);
+  //   msg.header.stamp.nanosec = static_cast<uint32_t>(now_ns % 1000000000LL);
+  // }
+  msg.header.stamp = rclcpp::Clock(RCL_SYSTEM_TIME).now();
   msg.header.frame_id = "local_origin";
   msg.angle_increment = static_cast<float>(ALPHA_RES) * M_PI / 180.0f;
-  msg.angle_min = 0.0f;  // Start from forward (0°)
-  msg.angle_max = 2 * M_PI;  // 360°
-  msg.time_increment = 0.0f;
-  msg.scan_time = 0.1f;  // 10 Hz
   msg.range_min = min_sensor_range_;
   msg.range_max = max_sensor_range_;
   msg.ranges.reserve(GRID_LENGTH_Z);
@@ -192,19 +189,10 @@ void LocalPlanner::updateObstacleDistanceMsg(Histogram hist) {
 }
 
 void LocalPlanner::updateObstacleDistanceMsg() {
-  sensor_msgs::msg::LaserScan msg ;
-  {
-    const auto now = rclcpp::Clock(RCL_SYSTEM_TIME).now();
-    const int64_t now_ns = now.nanoseconds();
-    msg.header.stamp.sec = static_cast<int32_t>(now_ns / 1000000000LL);
-    msg.header.stamp.nanosec = static_cast<uint32_t>(now_ns % 1000000000LL);
-  }
-  msg.header.frame_id = "MAV_FRAME_BODY_FRD";  // PX4 expects body frame
+  sensor_msgs::msg::LaserScan msg;
+  msg.header.stamp = rclcpp::Clock(RCL_SYSTEM_TIME).now();
+  msg.header.frame_id = "local_origin";
   msg.angle_increment = static_cast<float>(ALPHA_RES) * M_PI / 180.0f;
-  msg.angle_min = -M_PI;  // -180 degrees
-  msg.angle_max = M_PI - msg.angle_increment;  // +180 degrees (exclusive)
-  msg.time_increment = 0.0f;
-  msg.scan_time = 0.1f;  // 10 Hz
   msg.range_min = min_sensor_range_;
   msg.range_max = max_sensor_range_;
 
@@ -219,11 +207,11 @@ void LocalPlanner::setDefaultPx4Parameters() {
   px4_.param_mpc_auto_mode = 1;
   px4_.param_mpc_jerk_min = 8.f;
   px4_.param_mpc_jerk_max = 20.f;
-  px4_.param_acc_up_max = 10.f;
+  px4_.param_mpc_acc_up_max = 10.f;
   px4_.param_mpc_z_vel_max_up = 3.f;
   px4_.param_mpc_acc_down_max = 10.f;
   px4_.param_mpc_acc_hor = 5.f;
-  px4_.param_mpc_xy_cruise = 3.f;
+  px4_.param_mpc_xy_cruise = 10.f;
   px4_.param_mpc_tko_speed = 1.f;
   px4_.param_mpc_land_speed = 0.7f;
   px4_.param_cp_dist = 4.f;

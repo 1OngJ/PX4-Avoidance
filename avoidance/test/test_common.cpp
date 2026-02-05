@@ -812,10 +812,9 @@ TEST(Common, updateFOVFromMaxima) {
 }
 
 TEST(Common, transformToTrajectory) {
-  ros::Time::init();
-  geometry_msgs::PoseStamped position_sp;
-  geometry_msgs::Twist velocity_sp;
-  mavros_msgs::Trajectory trajectory_message;
+  geometry_msgs::msg::PoseStamped position_sp;
+  geometry_msgs::msg::Twist velocity_sp;
+  mavros_msgs::msg::Trajectory trajectory_message;
   position_sp.pose.position.x = 1.3;
   position_sp.pose.position.y = 2.7;
   position_sp.pose.position.z = 5.0;

@@ -160,23 +160,6 @@ install(TARGETS local_planner_node
         RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
-## MAVROS TF Publisher - bridges MAVROS pose to TF tree
-add_executable(mavros_tf_publisher
-  src/nodes/mavros_tf_publisher.cpp
-)
-target_link_libraries(mavros_tf_publisher
-  ${Boost_LIBRARIES}
-)
-ament_target_dependencies(mavros_tf_publisher
-  rclcpp
-  geometry_msgs
-  tf2
-  tf2_ros
-)
-install(TARGETS mavros_tf_publisher
-        RUNTIME DESTINATION lib/${PROJECT_NAME}
-)
-
 # Install launch files
 install(DIRECTORY
   launch

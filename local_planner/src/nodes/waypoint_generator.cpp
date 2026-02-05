@@ -99,7 +99,7 @@ usm::Transition WaypointGenerator::runTryPath() {
   } else if (isAltitudeChange()) {
     return usm::Transition::NEXT1;  // ALTITUDE_CHANGE
   } else if (tree_available) {
-    RCLCPP_DEBUG(waypoint_generator_logger_, "[WG] Using calculated tree\n");
+    // RCLCPP_DEBUG(waypoint_generator_logger_, "[WG] Using calculated tree\n");
     return usm::Transition::REPEAT;
   } else {
     return usm::Transition::NEXT2;  // DIRECT
@@ -168,8 +168,8 @@ usm::Transition WaypointGenerator::runLoiter() {
     hover_position_ = position_;
   }
   output_.goto_position = hover_position_;
-  RCLCPP_DEBUG(waypoint_generator_logger_, "[WG] Hover at: [%f, %f, %f].", output_.goto_position.x(), output_.goto_position.y(),
-            output_.goto_position.z());
+  // RCLCPP_DEBUG(waypoint_generator_logger_, "[WG] Hover at: [%f, %f, %f].", output_.goto_position.x(), output_.goto_position.y(),
+  //           output_.goto_position.z());
   getPathMsg();
 
   if (loiter_) {
@@ -183,8 +183,8 @@ usm::Transition WaypointGenerator::runDirect() {
   Eigen::Vector3f dir = (goal_ - position_).normalized();
   output_.goto_position = position_ + dir;
 
-  RCLCPP_DEBUG(waypoint_generator_logger_, "[WG] Going straight to selected waypoint: [%f, %f, %f].", output_.goto_position.x(),
-            output_.goto_position.y(), output_.goto_position.z());
+  // RCLCPP_DEBUG(waypoint_generator_logger_, "[WG] Going straight to selected waypoint: [%f, %f, %f].", output_.goto_position.x(),
+  //           output_.goto_position.y(), output_.goto_position.z());
 
   getPathMsg();
 
@@ -202,8 +202,8 @@ usm::Transition WaypointGenerator::runDirect() {
 }
 
 void WaypointGenerator::calculateWaypoint() {
-  RCLCPP_DEBUG(waypoint_generator_logger_, "\033[1;32m[WG] Generate Waypoint, current position: [%f, %f, %f].\033[0m", position_.x(), position_.y(),
-            position_.z());
+  // RCLCPP_DEBUG(waypoint_generator_logger_, "\033[1;32m[WG] Generate Waypoint, current position: [%f, %f, %f].\033[0m", position_.x(), position_.y(),
+  //           position_.z());
   output_.linear_velocity_wp = Eigen::Vector3f(NAN, NAN, NAN);
 
   // Timing
@@ -388,8 +388,8 @@ void WaypointGenerator::adaptSpeed(float dt) {
 
   output_.adapted_goto_position = position_ + pose_to_wp;
 
-  RCLCPP_INFO(waypoint_generator_logger_, "[WG] Speed adapted WP: [%f %f %f].", output_.adapted_goto_position.x(), output_.adapted_goto_position.y(),
-           output_.adapted_goto_position.z());
+  // RCLCPP_INFO(waypoint_generator_logger_, "[WG] Speed adapted WP: [%f %f %f].", output_.adapted_goto_position.x(), output_.adapted_goto_position.y(),
+  //          output_.adapted_goto_position.z());
 }
 
 // create the message that is sent to the UAV
@@ -408,9 +408,9 @@ void WaypointGenerator::getPathMsg() {
     smoothWaypoint(dt);
   }
 
-  RCLCPP_INFO(waypoint_generator_logger_, "[WG] Final waypoint: [%f %f %f]. %f %f %f \n", output_.smoothed_goto_position.x(),
-           output_.smoothed_goto_position.y(), output_.smoothed_goto_position.z(), output_.linear_velocity_wp.x(),
-           output_.linear_velocity_wp.y(), output_.linear_velocity_wp.z());
+  // RCLCPP_INFO(waypoint_generator_logger_, "[WG] Final waypoint: [%f %f %f]. %f %f %f \n", output_.smoothed_goto_position.x(),
+  //          output_.smoothed_goto_position.y(), output_.smoothed_goto_position.z(), output_.linear_velocity_wp.x(),
+  //          output_.linear_velocity_wp.y(), output_.linear_velocity_wp.z());
   createPoseMsg(output_.position_wp, output_.orientation_wp, output_.smoothed_goto_position, setpoint_yaw_rad_);
 }
 

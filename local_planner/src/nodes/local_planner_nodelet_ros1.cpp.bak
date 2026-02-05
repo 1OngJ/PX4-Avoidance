@@ -8,10 +8,8 @@
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include "avoidance/common.h"
-#include "local_planner/planner_functions.h"
 
 using namespace std::chrono_literals;
 
@@ -35,8 +33,6 @@ LocalPlannerNode::LocalPlannerNode(const rclcpp::NodeOptions& options)
     visualization_.initializePublishers(this);
     RCLCPP_INFO(this->get_logger(), "Visualization enabled");
   }
-
-  RCLCPP_INFO(this->get_logger(), "LocalPlannerNode initialized");
 }
 
 void LocalPlannerNode::declareAndLoadParams() {
@@ -58,9 +54,7 @@ void LocalPlannerNode::declareAndLoadParams() {
   this->declare_parameter<double>("smoothing_speed_xy", smoothing_speed_xy_);
   this->declare_parameter<double>("smoothing_speed_z", smoothing_speed_z_);
 
-  this->declare_parameter<bool>("enable_visualization", enable_visualization_);
-
-  // Planner parameters
+  // Planner parameters (former dynamic_reconfigure)
   this->declare_parameter<double>("max_sensor_range", planner_params_.max_sensor_range);
   this->declare_parameter<double>("min_sensor_range", planner_params_.min_sensor_range);
   this->declare_parameter<double>("pitch_cost_param", planner_params_.pitch_cost_param);
@@ -68,15 +62,19 @@ void LocalPlannerNode::declareAndLoadParams() {
   this->declare_parameter<double>("velocity_cost_param", planner_params_.velocity_cost_param);
   this->declare_parameter<double>("obstacle_cost_param", planner_params_.obstacle_cost_param);
   this->declare_parameter<double>("tree_heuristic_weight", planner_params_.tree_heuristic_weight);
-  this->declare_parameter<int>("n_expanded_nodes", planner_params_.n_expanded_nodes);
+  this->declare_parameter<double>("timeout_startup", planner_params_.timeout_startup);
+  this->declare_parameter<double>("timeout_critical", planner_params_.timeout_critical);
+  this->declare_parameter<double>("timeout_termination", planner_params_.timeout_termination);
   this->declare_parameter<double>("max_point_age_s", planner_params_.max_point_age_s);
   this->declare_parameter<int>("min_num_points_per_cell", planner_params_.min_num_points_per_cell);
   this->declare_parameter<double>("smoothing_margin_degrees", planner_params_.smoothing_margin_degrees);
   this->declare_parameter<int>("children_per_node", planner_params_.children_per_node);
+  this->declare_parameter<int>("n_expanded_nodes", planner_params_.n_expanded_nodes);
   this->declare_parameter<double>("tree_node_distance", planner_params_.tree_node_distance);
   this->declare_parameter<double>("camera_yaw_offset_deg", planner_params_.camera_yaw_offset_deg);
+  this->declare_parameter<bool>("enable_visualization", enable_visualization_);
 
-  // Load parameters
+  // Fetch
   planner_rate_hz_ = this->get_parameter("planner_rate_hz").as_double();
   pose_topic_ = this->get_parameter("pose_topic").as_string();
   velocity_topic_ = this->get_parameter("velocity_topic").as_string();
@@ -94,9 +92,6 @@ void LocalPlannerNode::declareAndLoadParams() {
   smoothing_speed_xy_ = this->get_parameter("smoothing_speed_xy").as_double();
   smoothing_speed_z_ = this->get_parameter("smoothing_speed_z").as_double();
 
-  enable_visualization_ = this->get_parameter("enable_visualization").as_bool();
-
-  // Load planner parameters
   planner_params_.max_sensor_range = static_cast<float>(this->get_parameter("max_sensor_range").as_double());
   planner_params_.min_sensor_range = static_cast<float>(this->get_parameter("min_sensor_range").as_double());
   planner_params_.pitch_cost_param = static_cast<float>(this->get_parameter("pitch_cost_param").as_double());
@@ -104,15 +99,21 @@ void LocalPlannerNode::declareAndLoadParams() {
   planner_params_.velocity_cost_param = static_cast<float>(this->get_parameter("velocity_cost_param").as_double());
   planner_params_.obstacle_cost_param = static_cast<float>(this->get_parameter("obstacle_cost_param").as_double());
   planner_params_.tree_heuristic_weight = static_cast<float>(this->get_parameter("tree_heuristic_weight").as_double());
-  planner_params_.n_expanded_nodes = this->get_parameter("n_expanded_nodes").as_int();
+  planner_params_.timeout_startup = this->get_parameter("timeout_startup").as_double();
+  planner_params_.timeout_critical = this->get_parameter("timeout_critical").as_double();
+  planner_params_.timeout_termination = this->get_parameter("timeout_termination").as_double();
   planner_params_.max_point_age_s = static_cast<float>(this->get_parameter("max_point_age_s").as_double());
   planner_params_.min_num_points_per_cell = this->get_parameter("min_num_points_per_cell").as_int();
   planner_params_.smoothing_margin_degrees = static_cast<float>(this->get_parameter("smoothing_margin_degrees").as_double());
   planner_params_.children_per_node = this->get_parameter("children_per_node").as_int();
+  planner_params_.n_expanded_nodes = this->get_parameter("n_expanded_nodes").as_int();
   planner_params_.tree_node_distance = static_cast<float>(this->get_parameter("tree_node_distance").as_double());
   planner_params_.camera_yaw_offset_deg = static_cast<float>(this->get_parameter("camera_yaw_offset_deg").as_double());
+  enable_visualization_ = this->get_parameter("enable_visualization").as_bool();
 
-  // Initialize goal from parameters
+  RCLCPP_INFO(this->get_logger(),"yaw_cost:%f", planner_params_.yaw_cost_param);
+
+
   goal_ = Eigen::Vector3f(static_cast<float>(goal_x_), static_cast<float>(goal_y_), static_cast<float>(goal_z_));
   prev_goal_ = goal_;
 
@@ -138,42 +139,44 @@ void LocalPlannerNode::setupSubscriptions() {
   auto state_qos = rclcpp::QoS(10).reliable().transient_local();
 
   pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-      pose_topic_, sensor_qos,
-      std::bind(&LocalPlannerNode::poseCallback, this, std::placeholders::_1));
+      pose_topic_, sensor_qos, std::bind(&LocalPlannerNode::poseCallback, this, std::placeholders::_1));
 
   vel_sub_ = this->create_subscription<geometry_msgs::msg::TwistStamped>(
-      velocity_topic_, sensor_qos,
-      std::bind(&LocalPlannerNode::velocityCallback, this, std::placeholders::_1));
+      velocity_topic_, sensor_qos, std::bind(&LocalPlannerNode::velocityCallback, this, std::placeholders::_1));
 
   traj_sub_ = this->create_subscription<mavros_msgs::msg::Trajectory>(
-      trajectory_topic_, reliable_qos,
-      std::bind(&LocalPlannerNode::trajectoryCallback, this, std::placeholders::_1));
+      trajectory_topic_, reliable_qos, std::bind(&LocalPlannerNode::trajectoryCallback, this, std::placeholders::_1));
 
   state_sub_ = this->create_subscription<mavros_msgs::msg::State>(
-      "/mavros/state", state_qos,
-      std::bind(&LocalPlannerNode::stateCallback, this, std::placeholders::_1));
+      "/mavros/state", state_qos, std::bind(&LocalPlannerNode::stateCallback, this, std::placeholders::_1));
 
-  // Subscribe to point clouds
+  cloud_subs_.clear();
+  cloud_subs_.reserve(pointcloud_topics_.size());
   for (size_t i = 0; i < pointcloud_topics_.size(); ++i) {
-    auto sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        pointcloud_topics_[i], sensor_qos,
-        [this, i](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-          this->cloudCallback(i, msg);
-        });
-    cloud_subs_.push_back(sub);
-    RCLCPP_INFO(this->get_logger(), "Subscribed to point cloud topic: %s", pointcloud_topics_[i].c_str());
+    cloud_subs_.push_back(this->create_subscription<sensor_msgs::msg::PointCloud2>(
+        pointcloud_topics_[i], rclcpp::SensorDataQoS(),
+        [this, i](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { cloudCallback(i, msg); }));
   }
 }
 
 void LocalPlannerNode::setupTimer() {
-  auto period = std::chrono::duration<double>(1.0 / planner_rate_hz_);
-  timer_ = this->create_wall_timer(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(period),
-      std::bind(&LocalPlannerNode::onTimer, this));
+  const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::duration<double>(1.0 / std::max(0.1, planner_rate_hz_)));
+  timer_ = this->create_wall_timer(period, std::bind(&LocalPlannerNode::onTimer, this));
 
-  // Heartbeat timer for companion status (1 Hz)
-  heartbeat_timer_ = this->create_wall_timer(
-      1s, std::bind(&LocalPlannerNode::publishCompanionStatus, this));
+  // Heartbeat timer at 1Hz to tell PX4 avoidance system is active
+  heartbeat_timer_ = this->create_wall_timer(1s, std::bind(&LocalPlannerNode::publishCompanionStatus, this));
+}
+
+void LocalPlannerNode::publishCompanionStatus() {
+  mavros_msgs::msg::CompanionProcessStatus status;
+  // Use system time for MAVLink compatibility
+  rclcpp::Clock system_clock(RCL_SYSTEM_TIME);
+  status.header.stamp = system_clock.now();
+  status.header.frame_id = "base_link";
+  status.component = mavros_msgs::msg::CompanionProcessStatus::MAV_COMP_ID_OBSTACLE_AVOIDANCE;
+  status.state = mavros_msgs::msg::CompanionProcessStatus::MAV_STATE_ACTIVE;
+  companion_status_pub_->publish(status);
 }
 
 void LocalPlannerNode::poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
@@ -206,94 +209,61 @@ void LocalPlannerNode::trajectoryCallback(const mavros_msgs::msg::Trajectory::Sh
     prev_goal_ = goal_;
   }
 
-  // Update goal from trajectory message
-  bool update_goal = false;
-  if (msg->point_valid[0]) {
-    Eigen::Vector3f new_goal = toEigen(msg->point_1.position);
-    // Check if goal has changed significantly
-    if (!std::isfinite(goal_.x()) || !std::isfinite(goal_.y()) ||
-        (new_goal - goal_).norm() > 0.1f) {
-      update_goal = true;
-    }
-  }
+  goal_ = Eigen::Vector3f(static_cast<float>(msg->point_1.position.x), static_cast<float>(msg->point_1.position.y),
+                         static_cast<float>(msg->point_1.position.z));
+  desired_vel_ = Eigen::Vector3f(static_cast<float>(msg->point_1.velocity.x), static_cast<float>(msg->point_1.velocity.y),
+                                 static_cast<float>(msg->point_1.velocity.z));
 
-  if (update_goal && msg->point_valid[0]) {
-    goal_ = toEigen(msg->point_1.position);
-    desired_vel_ = toEigen(msg->point_1.velocity);
-    is_land_waypoint_ = (msg->command[0] == static_cast<uint16_t>(MavCommand::MAV_CMD_NAV_LAND));
-    is_takeoff_waypoint_ = (msg->command[0] == static_cast<uint16_t>(MavCommand::MAV_CMD_NAV_TAKEOFF));
+  RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                       "Trajectory received: goal=[%.2f, %.2f, %.2f]",
+                       goal_.x(), goal_.y(), goal_.z());
 
-    RCLCPP_DEBUG(this->get_logger(), "Updated goal from trajectory: [%.2f, %.2f, %.2f]",
-                 goal_.x(), goal_.y(), goal_.z());
-  }
-
-  // Also check point_2 for mission item info
-  if (msg->point_valid[1]) {
-    if (msg->command[1] == UINT16_MAX) {
-      goal_ = toEigen(msg->point_2.position);
-      desired_vel_ << NAN, NAN, NAN;
-    }
+  // Basic land/takeoff inference if available
+  if (msg->command.size() > 1) {
+    is_land_waypoint_ = (msg->command[1] == static_cast<uint16_t>(MavCommand::MAV_CMD_NAV_LAND));
+    is_takeoff_waypoint_ = (msg->command[1] == static_cast<uint16_t>(MavCommand::MAV_CMD_NAV_TAKEOFF));
   }
 }
 
 void LocalPlannerNode::stateCallback(const mavros_msgs::msg::State::SharedPtr msg) {
   std::lock_guard<std::mutex> lock(data_mutex_);
-
   is_airborne_ = msg->armed;
-
-  if (msg->mode == "AUTO.MISSION") {
-    nav_state_ = NavigationState::mission;
-  } else if (msg->mode == "AUTO.TAKEOFF") {
-    nav_state_ = NavigationState::auto_takeoff;
-  } else if (msg->mode == "AUTO.LAND") {
-    nav_state_ = NavigationState::auto_land;
-  } else if (msg->mode == "AUTO.RTL") {
-    nav_state_ = NavigationState::auto_rtl;
-  } else if (msg->mode == "AUTO.RTGS") {
-    nav_state_ = NavigationState::auto_rtgs;
-  } else if (msg->mode == "AUTO.LOITER") {
-    nav_state_ = NavigationState::auto_loiter;
-  } else if (msg->mode == "OFFBOARD") {
-    nav_state_ = NavigationState::offboard;
-  } else {
-    nav_state_ = NavigationState::none;
-  }
+  loiter_ = (msg->mode == "AUTO.LOITER");
+  nav_state_ = (msg->mode.find("OFFBOARD") != std::string::npos) ? NavigationState::offboard : NavigationState::mission;
 }
 
 void LocalPlannerNode::cloudCallback(size_t index, const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-  std::lock_guard<std::mutex> lock(data_mutex_);
-
-  if (index < latest_clouds_.size()) {
-    latest_clouds_[index] = *msg;
-    have_cloud_ = true;
+  if (index >= latest_clouds_.size()) {
+    return;
   }
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  latest_clouds_[index] = *msg;
+  have_cloud_ = true;
 }
 
 void LocalPlannerNode::onTimer() {
-  // Check if we have required data
-  bool have_required_data = false;
-  {
-    std::lock_guard<std::mutex> lock(data_mutex_);
-    have_required_data = have_pose_ && have_cloud_;
-  }
-
-  if (!have_required_data) {
-    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                          "Waiting for pose and point cloud data...");
-    return;
-  }
-
-  // Copy data under lock
-  Eigen::Vector3f position, velocity, goal, prev_goal, desired_vel;
-  Eigen::Quaternionf orientation;
-  bool loiter, is_airborne, is_land_waypoint, is_takeoff_waypoint;
-  NavigationState nav_state;
+  // Snapshot inputs
   std::vector<sensor_msgs::msg::PointCloud2> clouds;
+  Eigen::Vector3f position;
+  Eigen::Vector3f velocity;
+  Eigen::Quaternionf orientation;
+  Eigen::Vector3f goal;
+  Eigen::Vector3f prev_goal;
+  Eigen::Vector3f desired_vel;
+  bool loiter;
+  bool is_airborne;
+  bool is_land_waypoint;
+  bool is_takeoff_waypoint;
+  NavigationState nav_state;
 
   {
     std::lock_guard<std::mutex> lock(data_mutex_);
+    if (!have_pose_ || !have_cloud_) {
+      return;
+    }
+    clouds = latest_clouds_;
     position = position_;
-    velocity = velocity_;
+    velocity = have_velocity_ ? velocity_ : Eigen::Vector3f::Zero();
     orientation = orientation_;
     goal = goal_;
     prev_goal = prev_goal_;
@@ -303,101 +273,76 @@ void LocalPlannerNode::onTimer() {
     is_land_waypoint = is_land_waypoint_;
     is_takeoff_waypoint = is_takeoff_waypoint_;
     nav_state = nav_state_;
-    clouds = latest_clouds_;
   }
 
-  // Transform point clouds to local_origin frame
-  std::vector<pcl::PointCloud<pcl::PointXYZ>> cloud_vector;
-  std::vector<FOV> fov_vector;
+  if (!std::isfinite(goal.x()) || !std::isfinite(goal.y()) || !std::isfinite(goal.z())) {
+    // Fall back to static goal params
+    goal = Eigen::Vector3f(static_cast<float>(goal_x_), static_cast<float>(goal_y_), static_cast<float>(goal_z_));
+    prev_goal = goal;
+  }
+
+  // Convert and feed clouds
+  std::vector<pcl::PointCloud<pcl::PointXYZ>> pcl_clouds;
+  pcl_clouds.resize(clouds.size());
+  std::vector<FOV> fovs;
+  fovs.resize(clouds.size());
+
   for (size_t i = 0; i < clouds.size(); ++i) {
-    FOV fov;
     if (clouds[i].data.empty()) {
-      cloud_vector.push_back(pcl::PointCloud<pcl::PointXYZ>());
-      fov_vector.push_back(fov);
       continue;
     }
 
-    try
-    {
-      geometry_msgs::msg::TransformStamped fcu_transform;
-      try
-      {
-        fcu_transform = tf_buffer_.lookupTransform(
-          "base_link",clouds[i].header.frame_id,
-          tf2::TimePointZero,
-          tf2::durationFromSec(0.1));
-
-        // Transform cloud to FCU frame for FOV calculation
-        sensor_msgs::msg::PointCloud2 cloud_fcu;
-        tf2::doTransform(clouds[i], cloud_fcu, fcu_transform);
-        
-        pcl::PointCloud<pcl::PointXYZ> pcl_cloud_fcu;
-        pcl::fromROSMsg(cloud_fcu, pcl_cloud_fcu);
-        
-        // Compute FOV from point cloud maxima
-        auto maxima = removeNaNAndGetMaxima(pcl_cloud_fcu);
-        updateFOVFromMaxima(fov, maxima);
-        
-      } catch (const tf2::TransformException& ex) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                             "Could not get FCU transform for FOV: %s", ex.what());
-        // Use default FOV for depth camera
-        fov = FOV(0.0f, 0.0f, 87.0f, 58.0f);  // OakD-Lite specs: 87° HFOV, 58° VFOV
+    sensor_msgs::msg::PointCloud2 cloud_in_target;
+    try {
+      // Transform cloud into desired planning frame
+      if (!target_cloud_frame_.empty() && clouds[i].header.frame_id != target_cloud_frame_) {
+        // Use Time(0) to get the latest available transform instead of trying to match timestamps
+        // This is necessary because Gazebo sim time and system time may differ significantly
+        const auto tf = tf_buffer_.lookupTransform(target_cloud_frame_, clouds[i].header.frame_id,
+                                                   rclcpp::Time(0), 100ms);
+        tf2::doTransform(clouds[i], cloud_in_target, tf);
+      } else {
+        cloud_in_target = clouds[i];
       }
-    
-      // Try to get transform to map frame (MAVROS uses "map" as local origin)
-      geometry_msgs::msg::TransformStamped transform;
-      transform = tf_buffer_.lookupTransform(
-          "map", clouds[i].header.frame_id,
-          tf2::TimePointZero,
-          tf2::durationFromSec(0.1));
-
-      // Transform the point cloud
-      sensor_msgs::msg::PointCloud2 transformed_cloud;
-      tf2::doTransform(clouds[i], transformed_cloud, transform);
-
-      // Convert to PCL
-      pcl::PointCloud<pcl::PointXYZ> pcl_cloud;
-      pcl::fromROSMsg(transformed_cloud, pcl_cloud);
-      cloud_vector.push_back(pcl_cloud);
-      fov_vector.push_back(fov);
-
-    } catch (const tf2::TransformException& ex) {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                           "Could not transform point cloud: %s", ex.what());
-      cloud_vector.push_back(pcl::PointCloud<pcl::PointXYZ>());
-      fov_vector.push_back(fov);
+    } catch (const std::exception& e) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                           "TF transform failed for cloud[%zu]: %s", i, e.what());
+      continue;
     }
 
+    pcl::fromROSMsg(cloud_in_target, pcl_clouds[i]);
+    auto maxima = removeNaNAndGetMaxima(pcl_clouds[i]);
+    updateFOVFromMaxima(fovs[i], maxima);
   }
 
-  // Update planner state
+  planner_.original_cloud_vector_ = pcl_clouds;
+  for (size_t i = 0; i < fovs.size(); ++i) {
+    planner_.setFOV(static_cast<int>(i), fovs[i]);
+    waypoint_generator_.setFOV(i, fovs[i]);  // Also pass FOV to waypoint generator for speed scaling
+  }
+
   planner_.setState(position, velocity, orientation);
-  planner_.setGoal(goal);
   planner_.setPreviousGoal(prev_goal);
-  planner_.original_cloud_vector_ = cloud_vector;
+  planner_.setGoal(goal);
 
-  for(size_t i = 0; i < fov_vector.size(); ++i) {
-  planner_.setFOV(static_cast<int>(i), fov_vector[i]);
-  waypoint_generator_.setFOV(static_cast<int>(i), fov_vector[i]);
-  }
+  RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                       "Goal: [%.2f, %.2f, %.2f], Position: [%.2f, %.2f, %.2f]",
+                       goal.x(), goal.y(), goal.z(), position.x(), position.y(), position.z());
 
-  // Run planner
   planner_.runPlanner();
+  const auto planner_out = planner_.getAvoidanceOutput();
 
-  // Update waypoint generator
-  waypoint_generator_.updateState(position, orientation, goal, prev_goal, velocity,
-                                  loiter, is_airborne, nav_state,
+  waypoint_generator_.setSmoothingSpeed(static_cast<float>(smoothing_speed_xy_), static_cast<float>(smoothing_speed_z_));
+  waypoint_generator_.setPlannerInfo(planner_out);
+  waypoint_generator_.updateState(position, orientation, goal, prev_goal, velocity, loiter, is_airborne, nav_state,
                                   is_land_waypoint, is_takeoff_waypoint, desired_vel);
-  waypoint_generator_.setPlannerInfo(planner_.getAvoidanceOutput());
 
-  // Get waypoints
   const auto wps = waypoint_generator_.getWaypoints();
 
   // Publish setpoint for OFFBOARD mode
   geometry_msgs::msg::PoseStamped sp;
   sp.header.stamp = this->now();
-  sp.header.frame_id = "map";
+  sp.header.frame_id = "local_origin";
   sp.pose.position = toPoint(wps.position_wp);
   sp.pose.orientation = toQuaternion(wps.orientation_wp);
   setpoint_pub_->publish(sp);
@@ -410,7 +355,7 @@ void LocalPlannerNode::onTimer() {
     mavros_msgs::msg::Trajectory traj_msg;
     rclcpp::Clock system_clock(RCL_SYSTEM_TIME);
     traj_msg.header.stamp = system_clock.now();
-    traj_msg.header.frame_id = "map";
+    traj_msg.header.frame_id = "local_origin";
     traj_msg.type = mavros_msgs::msg::Trajectory::MAV_TRAJECTORY_REPRESENTATION_WAYPOINTS;
 
     // Set avoidance waypoint in point_1 (modified setpoint from avoidance)
@@ -450,7 +395,6 @@ void LocalPlannerNode::onTimer() {
     trajectory_generated_pub_->publish(traj_msg);
   }
 
-  // Publish obstacle scan data
   sensor_msgs::msg::LaserScan scan;
   planner_.getObstacleDistanceData(scan);
   // Use system time for obstacle data (PX4 expects wall clock time)
@@ -460,27 +404,8 @@ void LocalPlannerNode::onTimer() {
 
   // Visualization
   if (enable_visualization_) {
-    visualization_.visualizePlannerData(planner_, wps.position_wp, wps.adapted_goto_position,
-                                        position, orientation);
-    visualization_.visualizeWaypoints(wps.goto_position, wps.adapted_goto_position, wps.smoothed_goto_position);
-    visualization_.publishCurrentSetpoint(toTwist(wps.linear_velocity_wp, wps.angular_velocity_wp),
-                                          wps.waypoint_type, position);
+    visualization_.visualizePlannerData(planner_, wps.smoothed_goto_position, wps.adapted_goto_position, position, orientation);
   }
-}
-
-void LocalPlannerNode::publishCompanionStatus() {
-  mavros_msgs::msg::CompanionProcessStatus status_msg;
-  status_msg.header.stamp = this->now();
-  status_msg.component = 196;  // MAV_COMPONENT_ID_AVOIDANCE
-  
-  // Set state based on data availability
-  if (have_pose_ && have_cloud_) {
-    status_msg.state = static_cast<int>(MAV_STATE::MAV_STATE_ACTIVE);
-  } else {
-    status_msg.state = static_cast<int>(MAV_STATE::MAV_STATE_BOOT);
-  }
-
-  companion_status_pub_->publish(status_msg);
 }
 
 }  // namespace avoidance

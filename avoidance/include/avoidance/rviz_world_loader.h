@@ -1,8 +1,8 @@
 #ifndef RVIZ_WORLD_H
 #define RVIZ_WORLD_H
 
-#include <chrono>
-
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <rclcpp/rclcpp.hpp>
 #include <Eigen/Core>
 #include <fstream>
 #include <iostream>
@@ -10,12 +10,8 @@
 #include <vector>
 #include "yaml-cpp/yaml.h"
 
-#include "rclcpp/rclcpp.hpp"
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
-#ifdef AVOIDANCE_HAVE_PX4_MSGS
-#include <px4_msgs/msg/vehicle_odometry.hpp>
-#endif
 
 #include <sys/stat.h>
 
@@ -37,58 +33,51 @@ void operator>>(const YAML::Node& node, Eigen::Vector3f& v);
 void operator>>(const YAML::Node& node, Eigen::Vector4f& v);
 void operator>>(const YAML::Node& node, world_object& item);
 
-#ifdef AVOIDANCE_HAVE_PX4_MSGS
-class WorldVisualizer : public rclcpp::Node {
-private:
+class WorldVisualizer {
+ private:
   /**
-   * @brief      helper function to resolve gazebo model path
-   **/
-  int resolveUri(std::string& uri) const;
+  * @brief      helper function to resolve gazebo model path
+  **/
+  int resolveUri(std::string& uri);
+
+  rclcpp::Node::SharedPtr node_;
 
   rclcpp::TimerBase::SharedPtr loop_timer_;
 
-  rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr pose_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr world_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr drone_pub_;
 
   std::string world_path_;
+  std::string nodelet_ns_;
 
   void loopCallback();
 
-public:
-  /**
-   * @brief     WorldVisualizer Node Class
-   */
-  WorldVisualizer();
-  ~WorldVisualizer() = default;
+ public:
+  WorldVisualizer(rclcpp::Node::SharedPtr node, const std::string& nodelet_ns);
 
   /**
-   * @brief      callback for subscribing mav pose topic
-   **/
-  void positionCallback(const px4_msgs::msg::VehicleOdometry::SharedPtr msg) const;
+  * @brief      initializes all publishers used for local planner visualization
+  **/
+  void initializePublishers();
 
   /**
-   * @brief      parse the yaml file and publish world marker
-   * @param[in]  world_path, path of the yaml file describing the world
-   **/
+  * @brief      callback for subscribing mav pose topic
+  **/
+  void positionCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+
+  /**
+  * @brief      parse the yaml file and publish world marker
+  * @param[in]  world_path, path of the yaml file describing the world
+  **/
   int visualizeRVIZWorld(const std::string& world_path);
 
   /**
-   * @brief      visualize the drone mesh at the current drone position
-   * @param[in]  pose, current drone pose
-   **/
-  int visualizeDrone(const px4_msgs::msg::VehicleOdometry& pose) const;
+  * @brief      visualize the drone mesh at the current drone position
+  * @param[in]  pose, current drone pose
+  **/
+  int visualizeDrone(const geometry_msgs::msg::PoseStamped& pose);
 };
-
-#else
-
-class WorldVisualizer {
- public:
-  WorldVisualizer() = delete;
-  ~WorldVisualizer() = delete;
-};
-
-#endif
-}
+}  // namespace avoidance
 
 #endif  // RVIZ_WORLD_H

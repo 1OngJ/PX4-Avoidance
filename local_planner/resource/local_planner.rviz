@@ -5,12 +5,8 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
-        - /TF1
-        - /Drone Pose1
-        - /Depth Camera PointCloud1
-        - /Obstacle Distance1
-      Splitter Ratio: 0.5
-    Tree Height: 422
+      Splitter Ratio: 0.5013054609298706
+    Tree Height: 279
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -341,10 +337,10 @@ Visualization Manager:
         Value: /local_planner/fov
       Value: true
     - Class: rviz_default_plugins/Marker
-      Enabled: true
+      Enabled: false
       Name: Range Scan
       Namespaces:
-        "": true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -352,7 +348,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /local_planner/range_scan
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Marker
       Enabled: true
       Name: Current Setpoint
@@ -426,25 +422,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 27.99561309814453
+      Distance: 41.45610809326172
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 21.495885848999023
-        Y: 0.36189448833465576
-        Z: 2.843170404434204
+        X: 25.869674682617188
+        Y: 0.2023858278989792
+        Z: -1.1497565507888794
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.4447965621948242
+      Pitch: 1.519796371459961
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 1.53001070022583
+      Yaw: 1.4500102996826172
     Saved:
       - Class: rviz_default_plugins/Orbit
         Distance: 50
@@ -494,13 +490,13 @@ Window Geometry:
   Hide Right Dock: true
   Image:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd000000010000000000000156000002fbfc0200000005fb000000100044006900730070006c006100790073010000003f00000234000000cc00fffffffb0000001200530065006c0065006300740069006f006e0000000161000000890000005d00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007300000001a4000000aa0000005d00fffffffb0000000a00560069006500770073000000020e0000012c000000a900fffffffb0000000a0049006d0061006700650100000279000000c10000001700ffffff000004f9000002fb00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd000000010000000000000181000002fbfc0200000005fb000000100044006900730070006c006100790073010000003f000001a5000000cc00fffffffb0000001200530065006c0065006300740069006f006e0000000161000000890000005d00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007300000001a4000000aa0000005d00fffffffb0000000a00560069006500770073000000020e0000012c000000a900fffffffb0000000a0049006d00610067006501000001ea000001500000001700ffffff000005b5000002fb00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Tool Properties:
     collapsed: false
   Views:
     collapsed: false
-  Width: 1621
+  Width: 1852
   X: 66
   Y: 32

@@ -6,6 +6,8 @@
 #include <limits>
 #include <vector>
 
+#include <tf2/utils.h>
+
 namespace avoidance {
 
 bool pointInsideFOV(const std::vector<FOV>& fov_vec, const PolarPoint& p_pol) {
@@ -16,6 +18,17 @@ bool pointInsideFOV(const std::vector<FOV>& fov_vec, const PolarPoint& p_pol) {
   }
   return false;
 }
+
+// bool pointInsideFOV(const FOV& fov, const PolarPoint& p_pol) {
+//   // Use angular difference to correctly handle wrap-around at ±180°.
+//   // The old boundary comparison (p_pol.z <= upper && p_pol.z >= lower) breaks when
+//   // the FOV straddles the ±180° discontinuity (e.g. rear camera at yaw=180°):
+//   //   upper = wrap(180+43.5) = -136.5°,  lower = 136.5°  → condition always false.
+//   float dz = wrapAngleToPlusMinus180(p_pol.z - fov.yaw_deg);
+//   return std::abs(dz) <= fov.h_fov_deg / 2.f &&
+//          p_pol.e <= fov.pitch_deg + fov.v_fov_deg / 2.f &&
+//          p_pol.e >= fov.pitch_deg - fov.v_fov_deg / 2.f;
+// }
 
 bool pointInsideFOV(const FOV& fov, const PolarPoint& p_pol) {
   return p_pol.z <= wrapAngleToPlusMinus180(fov.yaw_deg + fov.h_fov_deg / 2.f) &&
@@ -62,6 +75,12 @@ bool pointInsideYawFOV(const std::vector<FOV>& fov_vec, const PolarPoint& p_pol)
   }
   return false;
 }
+
+// bool pointInsideYawFOV(const FOV& fov, const PolarPoint& p_pol) {
+//   // Same wrap-around fix as pointInsideFOV.
+//   float dz = wrapAngleToPlusMinus180(p_pol.z - fov.yaw_deg);
+//   return std::abs(dz) <= fov.h_fov_deg / 2.f;
+// }
 
 bool pointInsideYawFOV(const FOV& fov, const PolarPoint& p_pol) {
   return p_pol.z <= wrapAngleToPlusMinus180(fov.yaw_deg + fov.h_fov_deg / 2.f) &&
@@ -278,10 +297,10 @@ double getAngularVelocity(float desired_yaw, float curr_yaw) {
   return 0.5 * static_cast<double>(vel);
 }
 
-void transformToTrajectory(mavros_msgs::Trajectory& obst_avoid, geometry_msgs::PoseStamped pose,
-                           geometry_msgs::Twist vel) {
-  obst_avoid.header.stamp = ros::Time::now();
-  obst_avoid.type = 0;  // MAV_TRAJECTORY_REPRESENTATION::WAYPOINTS
+void transformToTrajectory(mavros_msgs::msg::Trajectory& obst_avoid, geometry_msgs::msg::PoseStamped pose,
+                           geometry_msgs::msg::Twist vel) {
+  obst_avoid.header = pose.header;
+  obst_avoid.type = mavros_msgs::msg::Trajectory::MAV_TRAJECTORY_REPRESENTATION_WAYPOINTS;
   obst_avoid.point_1.position.x = pose.pose.position.x;
   obst_avoid.point_1.position.y = pose.pose.position.y;
   obst_avoid.point_1.position.z = pose.pose.position.z;
@@ -291,8 +310,8 @@ void transformToTrajectory(mavros_msgs::Trajectory& obst_avoid, geometry_msgs::P
   obst_avoid.point_1.acceleration_or_force.x = NAN;
   obst_avoid.point_1.acceleration_or_force.y = NAN;
   obst_avoid.point_1.acceleration_or_force.z = NAN;
-  obst_avoid.point_1.yaw = tf::getYaw(pose.pose.orientation);
-  obst_avoid.point_1.yaw_rate = -vel.angular.z;
+  obst_avoid.point_1.yaw = static_cast<float>(tf2::getYaw(pose.pose.orientation));
+  obst_avoid.point_1.yaw_rate = static_cast<float>(-vel.angular.z);
 
   fillUnusedTrajectoryPoint(obst_avoid.point_2);
   fillUnusedTrajectoryPoint(obst_avoid.point_3);
@@ -304,10 +323,9 @@ void transformToTrajectory(mavros_msgs::Trajectory& obst_avoid, geometry_msgs::P
   obst_avoid.point_valid = {true, false, false, false, false};
 }
 
-void transformToBezier(mavros_msgs::Trajectory& obst_avoid, const std::array<Eigen::Vector4d, 5>& control_points,
+void transformToBezier(mavros_msgs::msg::Trajectory& obst_avoid, const std::array<Eigen::Vector4d, 5>& control_points,
                        double duration) {
-  obst_avoid.header.stamp = ros::Time::now();
-  obst_avoid.type = 1;  // MAV_TRAJECTORY_REPRESENTATION::BEZIER
+  obst_avoid.type = mavros_msgs::msg::Trajectory::MAV_TRAJECTORY_REPRESENTATION_BEZIER;
   fillControlPoint(obst_avoid.point_1, control_points[0]);
   fillControlPoint(obst_avoid.point_2, control_points[1]);
   fillControlPoint(obst_avoid.point_3, control_points[2]);
@@ -318,12 +336,12 @@ void transformToBezier(mavros_msgs::Trajectory& obst_avoid, const std::array<Eig
   obst_avoid.point_valid = {true, true, true, true, true};
 }
 
-void fillControlPoint(mavros_msgs::PositionTarget& point_out, const Eigen::Vector4d& point_in) {
+void fillControlPoint(mavros_msgs::msg::PositionTarget& point_out, const Eigen::Vector4d& point_in) {
   point_out.position = toPoint(toENU(point_in.topRows<3>().cast<float>()));
   point_out.yaw = yawToENUrad(point_in[3]);
 }
 
-void fillUnusedTrajectoryPoint(mavros_msgs::PositionTarget& point) {
+void fillUnusedTrajectoryPoint(mavros_msgs::msg::PositionTarget& point) {
   point.position.x = NAN;
   point.position.y = NAN;
   point.position.z = NAN;

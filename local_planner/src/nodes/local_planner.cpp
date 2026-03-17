@@ -4,11 +4,14 @@
 #include "local_planner/star_planner.h"
 #include "local_planner/tree_node.h"
 
-#include <sensor_msgs/image_encodings.h>
+#include <cmath>
 
 namespace avoidance {
 
-LocalPlanner::LocalPlanner() : star_planner_(new StarPlanner()) {}
+LocalPlanner::LocalPlanner()
+    : last_path_time_(steady_clock_.now()),
+      last_pointcloud_process_time_(steady_clock_.now()),
+      star_planner_(new StarPlanner()) {}
 
 LocalPlanner::~LocalPlanner() {}
 
@@ -21,38 +24,47 @@ void LocalPlanner::setState(const Eigen::Vector3f& pos, const Eigen::Vector3f& v
   star_planner_->setPose(position_, velocity_);
 }
 
-// set parameters changed by dynamic rconfigure
-void LocalPlanner::dynamicReconfigureSetParams(avoidance::LocalPlannerNodeConfig& config, uint32_t level) {
-  max_sensor_range_ = static_cast<float>(config.max_sensor_range_);
-  cost_params_.pitch_cost_param = config.pitch_cost_param_;
-  cost_params_.yaw_cost_param = config.yaw_cost_param_;
-  cost_params_.velocity_cost_param = config.velocity_cost_param_;
-  cost_params_.obstacle_cost_param = config.obstacle_cost_param_;
-  max_point_age_s_ = static_cast<float>(config.max_point_age_s_);
-  min_num_points_per_cell_ = config.min_num_points_per_cell_;
-  min_sensor_range_ = static_cast<float>(config.min_sensor_range_);
-  timeout_startup_ = config.timeout_startup_;
-  timeout_critical_ = config.timeout_critical_;
-  timeout_termination_ = config.timeout_termination_;
-  children_per_node_ = config.children_per_node_;
-  n_expanded_nodes_ = config.n_expanded_nodes_;
-  smoothing_margin_degrees_ = static_cast<float>(config.smoothing_margin_degrees_);
+void LocalPlanner::setParams(const Params& params) {
+  max_sensor_range_ = params.max_sensor_range;
+  min_sensor_range_ = params.min_sensor_range;
+  max_point_age_s_ = params.max_point_age_s;
+  forward_camera_index_ = params.forward_camera_index;
+  non_forward_initial_age_s_ = params.non_forward_initial_age_s;
+  min_num_points_per_cell_ = params.min_num_points_per_cell;
+  timeout_startup_ = params.timeout_startup;
+  timeout_critical_ = params.timeout_critical;
+  timeout_termination_ = params.timeout_termination;
+  smoothing_margin_degrees_ = params.smoothing_margin_degrees;
+  camera_yaw_offset_deg_ = params.camera_yaw_offset_deg;
 
-  if (getGoal().z() != config.goal_z_param) {
-    auto goal = getGoal();
-    goal.z() = config.goal_z_param;
-    setGoal(goal);
-  }
+  children_per_node_ = params.children_per_node;
+  n_expanded_nodes_ = params.n_expanded_nodes;
 
-  star_planner_->dynamicReconfigureSetStarParams(config, level);
+  cost_params_.pitch_cost_param = params.pitch_cost_param;
+  cost_params_.yaw_cost_param = params.yaw_cost_param;
+  cost_params_.velocity_cost_param = params.velocity_cost_param;
+  cost_params_.obstacle_cost_param = params.obstacle_cost_param;
 
-  ROS_DEBUG("\033[0;35m[OA] Dynamic reconfigure call \033[0m");
+  // Pass tree search parameters to StarPlanner
+  star_planner_->setTreeParams(
+      params.children_per_node,
+      params.n_expanded_nodes,
+      params.tree_node_distance,
+      params.tree_heuristic_weight,
+      params.max_sensor_range,
+      params.min_sensor_range,
+      params.smoothing_margin_degrees);
+
+  RCLCPP_INFO(logger_, "\033[0;35m[OA] Params updated: children_per_node=%d, n_expanded_nodes=%d, "
+              "tree_heuristic_weight=%.1f, pitch_cost=%.1f, yaw_cost=%.1f, velocity_cost=%.1f\033[0m",
+              params.children_per_node, params.n_expanded_nodes, params.tree_heuristic_weight,
+              params.pitch_cost_param, params.yaw_cost_param, params.velocity_cost_param);
 }
 
 void LocalPlanner::setGoal(const Eigen::Vector3f& goal) {
   goal_ = goal;
 
-  ROS_INFO("===== Set Goal ======: [%f, %f, %f].", goal_.x(), goal_.y(), goal_.z());
+  RCLCPP_INFO(logger_, "===== Set Goal ======: [%f, %f, %f].", goal_.x(), goal_.y(), goal_.z());
   applyGoal();
 }
 void LocalPlanner::setPreviousGoal(const Eigen::Vector3f& prev_goal) { prev_goal_ = prev_goal; }
@@ -70,14 +82,15 @@ Eigen::Vector3f LocalPlanner::getGoal() const { return goal_; }
 void LocalPlanner::applyGoal() { star_planner_->setGoal(goal_); }
 
 void LocalPlanner::runPlanner() {
-  ROS_INFO("\033[1;35m[OA] Planning started, using %i cameras\n \033[0m",
-           static_cast<int>(original_cloud_vector_.size()));
+  RCLCPP_INFO(logger_, "\033[1;35m[OA] Planning started, using %i cameras\n \033[0m",
+              static_cast<int>(original_cloud_vector_.size()));
 
-  float elapsed_since_last_processing = static_cast<float>((ros::Time::now() - last_pointcloud_process_time_).toSec());
+  const auto now_steady = steady_clock_.now();
+  float elapsed_since_last_processing = static_cast<float>((now_steady - last_pointcloud_process_time_).seconds());
   processPointcloud(final_cloud_, original_cloud_vector_, fov_fcu_frame_, yaw_fcu_frame_deg_, pitch_fcu_frame_deg_,
                     position_, min_sensor_range_, max_sensor_range_, max_point_age_s_, elapsed_since_last_processing,
-                    min_num_points_per_cell_);
-  last_pointcloud_process_time_ = ros::Time::now();
+                    min_num_points_per_cell_, forward_camera_index_, non_forward_initial_age_s_);
+  last_pointcloud_process_time_ = now_steady;
 
   determineStrategy();
 }
@@ -143,29 +156,53 @@ void LocalPlanner::determineStrategy() {
 
     // build search tree
     star_planner_->buildLookAheadTree();
-    last_path_time_ = ros::Time::now();
+    last_path_time_ = steady_clock_.now();
   }
 }
 
 void LocalPlanner::updateObstacleDistanceMsg(Histogram hist) {
-  sensor_msgs::LaserScan msg = {};
-  msg.header.stamp = ros::Time::now();
-  msg.header.frame_id = "local_origin";
-  msg.angle_increment = static_cast<double>(ALPHA_RES) * M_PI / 180.0;
+  sensor_msgs::msg::LaserScan msg;
+  msg.header.stamp = rclcpp::Clock(RCL_SYSTEM_TIME).now();
+  msg.header.frame_id = "base_link";
+  msg.angle_min = 0.0f;
+  msg.angle_max = 2.0f * static_cast<float>(M_PI)
+                  - static_cast<float>(ALPHA_RES) * static_cast<float>(M_PI) / 180.0f;
+  msg.angle_increment = static_cast<float>(ALPHA_RES) * static_cast<float>(M_PI) / 180.0f;
   msg.range_min = min_sensor_range_;
   msg.range_max = max_sensor_range_;
-  msg.ranges.reserve(GRID_LENGTH_Z);
+  msg.ranges.resize(GRID_LENGTH_Z);
+
+  // ---- Coordinate convention ----
+  // MAVROS obstacle plugin default: mav_frame = "GLOBAL"
+  //   → MAVLink OBSTACLE_DISTANCE.frame = MAV_FRAME_GLOBAL
+  //   → PX4 interprets angles as NED heading: 0°=North, CW
+  //
+  // Histogram azimuth: atan2(east, north) → 0°=North, 90°=East, CW
+  //   → SAME convention as NED heading!
+  //
+  // So the mapping is trivial:
+  //   ranges[i] = distance at NED heading (i * ALPHA_RES)°
+  //   hist_az   = i * ALPHA_RES  (direct 1:1 mapping)
 
   for (int i = 0; i < GRID_LENGTH_Z; ++i) {
-    // turn idxs 180 degress to point to local north instead of south
-    int j = (i + GRID_LENGTH_Z / 2) % GRID_LENGTH_Z;
-    float dist = hist.get_dist(0, j);
+    // NED heading angle for this bin (0°=North, CW)
+    // Same convention as histogram azimuth → direct mapping
+    float hist_az_deg = static_cast<float>(i * ALPHA_RES);
 
-    // is bin inside FOV?
-    if (histogramIndexYawInsideFOV(fov_fcu_frame_, j, position_, yaw_fcu_frame_deg_)) {
-      msg.ranges.push_back(dist > min_sensor_range_ ? dist : max_sensor_range_ + 0.01f);
+    // Wrap to [-180, 180) for histogram index calculation
+    while (hist_az_deg > 180.0f) hist_az_deg -= 360.0f;
+    while (hist_az_deg <= -180.0f) hist_az_deg += 360.0f;
+
+    int z_idx = static_cast<int>(std::floor(hist_az_deg / static_cast<float>(ALPHA_RES)
+                                            + static_cast<float>(GRID_LENGTH_Z) / 2.0f));
+    z_idx = std::max(0, std::min(z_idx, GRID_LENGTH_Z - 1));
+
+    float dist = hist.get_dist(0, z_idx);
+
+    if (histogramIndexYawInsideFOV(fov_fcu_frame_, z_idx, position_, yaw_fcu_frame_deg_)) {
+      msg.ranges[i] = dist > min_sensor_range_ ? dist : max_sensor_range_ + 0.01f;
     } else {
-      msg.ranges.push_back(NAN);
+      msg.ranges[i] = max_sensor_range_ + 1.00f;
     }
   }
 
@@ -173,10 +210,10 @@ void LocalPlanner::updateObstacleDistanceMsg(Histogram hist) {
 }
 
 void LocalPlanner::updateObstacleDistanceMsg() {
-  sensor_msgs::LaserScan msg = {};
-  msg.header.stamp = ros::Time::now();
-  msg.header.frame_id = "local_origin";
-  msg.angle_increment = static_cast<double>(ALPHA_RES) * M_PI / 180.0;
+  sensor_msgs::msg::LaserScan msg;
+  msg.header.stamp = rclcpp::Clock(RCL_SYSTEM_TIME).now();
+  msg.header.frame_id = "map";
+  msg.angle_increment = static_cast<float>(ALPHA_RES) * M_PI / 180.0f;
   msg.range_min = min_sensor_range_;
   msg.range_max = max_sensor_range_;
 
@@ -194,9 +231,8 @@ void LocalPlanner::setDefaultPx4Parameters() {
   px4_.param_mpc_acc_up_max = 10.f;
   px4_.param_mpc_z_vel_max_up = 3.f;
   px4_.param_mpc_acc_down_max = 10.f;
-  px4_.param_mpc_z_vel_max_dn = 1.f;
   px4_.param_mpc_acc_hor = 5.f;
-  px4_.param_mpc_xy_cruise = 3.f;
+  px4_.param_mpc_xy_cruise = 10.f;
   px4_.param_mpc_tko_speed = 1.f;
   px4_.param_mpc_land_speed = 0.7f;
   px4_.param_cp_dist = 4.f;
@@ -209,7 +245,7 @@ void LocalPlanner::getTree(std::vector<TreeNode>& tree, std::vector<int>& closed
   path_node_positions = star_planner_->path_node_positions_;
 }
 
-void LocalPlanner::getObstacleDistanceData(sensor_msgs::LaserScan& obstacle_distance) {
+void LocalPlanner::getObstacleDistanceData(sensor_msgs::msg::LaserScan& obstacle_distance) {
   obstacle_distance = distance_data_;
 }
 

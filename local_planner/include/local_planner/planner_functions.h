@@ -34,7 +34,8 @@ void processPointcloud(pcl::PointCloud<pcl::PointXYZI>& final_cloud,
                        const std::vector<pcl::PointCloud<pcl::PointXYZ>>& complete_cloud, const std::vector<FOV>& fov,
                        float yaw_fcu_frame_deg, float pitch_fcu_frame_deg, const Eigen::Vector3f& position,
                        float min_sensor_range, float max_sensor_range, float max_age, float elapsed_s,
-                       int min_num_points_per_cell);
+                       int min_num_points_per_cell, int forward_camera_index = 0,
+                       float non_forward_initial_age_s = 0.0f);
 
 /**
 * @brief      calculates a histogram from the current frame pointcloud around
@@ -154,7 +155,13 @@ void printHistogram(const Histogram& histogram);
 * @param[out] setpoint on the tree toward which the drone should fly
 * @returns    boolean indicating whether the tree was valid
 **/
-bool getSetpointFromPath(const std::vector<Eigen::Vector3f>& path, const ros::Time& path_generation_time,
-                         float velocity, const ros::Time& current_time, Eigen::Vector3f& setpoint);
+bool getSetpointFromPath(const std::vector<Eigen::Vector3f>& path, const rclcpp::Time& path_generation_time,
+                         float velocity, const rclcpp::Time& current_time, Eigen::Vector3f& setpoint);
+
+/**
+* @brief Local planner logger
+*/
+static rclcpp::Logger planner_functions_logger_ = rclcpp::get_logger("local_planner");
 }
+
 #endif  // LOCAL_PLANNER_FUNCTIONS_H

@@ -1,28 +1,26 @@
 #ifndef LOCAL_PLANNER_LOCAL_PLANNER_H
 #define LOCAL_PLANNER_LOCAL_PLANNER_H
 
-#include <sensor_msgs/image_encodings.h>
+#include <sensor_msgs/image_encodings.hpp>
+#include <rclcpp/rclcpp.hpp>
+
 #include "avoidance/histogram.h"
 #include "avoidance_output.h"
 #include "candidate_direction.h"
 #include "cost_parameters.h"
 #include "planner_functions.h"
 
-#include <dynamic_reconfigure/server.h>
-#include <local_planner/LocalPlannerNodeConfig.h>
-
 #include <Eigen/Dense>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
-#include <sensor_msgs/LaserScan.h>
-#include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/msg/laser_scan.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include <nav_msgs/GridCells.h>
-#include <nav_msgs/Path.h>
+#include <nav_msgs/msg/grid_cells.hpp>
+#include <nav_msgs/msg/path.hpp>
 
-#include <ros/time.h>
 #include <deque>
 #include <string>
 #include <vector>
@@ -36,19 +34,30 @@ class LocalPlanner {
  private:
   int children_per_node_;
   int n_expanded_nodes_;
-  int min_num_points_per_cell_ = 3;
+  int min_num_points_per_cell_ = 25;
 
   float min_sensor_range_ = 0.2f;
   float max_sensor_range_ = 12.0f;
   float smoothing_margin_degrees_ = 30.f;
   float max_point_age_s_ = 10;
+  int forward_camera_index_ = 0;
+  float non_forward_initial_age_s_ = 0.0f;
   float yaw_fcu_frame_deg_ = 0.0f;
   float pitch_fcu_frame_deg_ = 0.0f;
+  
+  // Camera frame offset for obstacle distance calculation
+  // This corrects for the coordinate system difference between 
+  // camera optical frame and body frame. Value in degrees.
+  float camera_yaw_offset_deg_ = 0.0f;
 
   std::vector<FOV> fov_fcu_frame_;
 
-  ros::Time last_path_time_;
-  ros::Time last_pointcloud_process_time_;
+  // IMPORTANT: steady_clock_ must be declared before members initialized from it
+  rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
+  rclcpp::Logger logger_{rclcpp::get_logger("local_planner.core")};
+
+  rclcpp::Time last_path_time_;
+  rclcpp::Time last_pointcloud_process_time_;
 
   std::vector<int> closed_set_;
   std::vector<TreeNode> tree_;
@@ -100,7 +109,7 @@ class LocalPlanner {
 
   ModelParameters px4_;  // PX4 Firmware paramters
 
-  sensor_msgs::LaserScan distance_data_ = {};
+  sensor_msgs::msg::LaserScan distance_data_ = {};
   Eigen::Vector3f last_sent_waypoint_ = Eigen::Vector3f::Zero();
 
   // original_cloud_vector_ contains n complete clouds from the cameras
@@ -158,7 +167,29 @@ class LocalPlanner {
   * @param     config, struct containing all the parameters
   * @param     level, bitmask to group together reconfigurable parameters
   **/
-  void dynamicReconfigureSetParams(avoidance::LocalPlannerNodeConfig& config, uint32_t level);
+  struct Params {
+    float max_sensor_range = 19.0f;
+    float min_sensor_range = 1.5f;
+    float pitch_cost_param = 15.0f;
+    float yaw_cost_param = 10.0f;
+    float velocity_cost_param = 6000.0f;
+    float obstacle_cost_param = 3.0f;
+    float tree_heuristic_weight = 35.0f;
+    double timeout_startup = 5.0;
+    double timeout_critical = 0.5;
+    double timeout_termination = 15.0;
+    float max_point_age_s = 0.5f;
+    int min_num_points_per_cell = 25;
+    float smoothing_margin_degrees = 30.0f;
+    int children_per_node = 8;
+    int n_expanded_nodes = 80;
+    float tree_node_distance = 0.8f;
+    float camera_yaw_offset_deg = 0.0f;  // Camera frame to body frame offset
+    int forward_camera_index = 0;           // Index of the forward-facing camera (highest confidence)
+    float non_forward_initial_age_s = 0.0f; // Initial age [s] assigned to non-forward camera points
+  };
+
+  void setParams(const Params& params);
 
   /**
   * @brief     getter method for current vehicle orientation
@@ -190,7 +221,7 @@ class LocalPlanner {
   * @brief     getter method for obstacle distance information
   * @param     obstacle_distance, obstacle distance message to fill
   **/
-  void getObstacleDistanceData(sensor_msgs::LaserScan& obstacle_distance);
+  void getObstacleDistanceData(sensor_msgs::msg::LaserScan& obstacle_distance);
 
   /**
   * @brief     getter method of the local planner algorithm

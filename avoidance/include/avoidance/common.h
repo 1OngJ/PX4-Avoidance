@@ -8,12 +8,14 @@
 #include <Eigen/Core>
 #include <Eigen/Dense>
 
-#include <geometry_msgs/Point.h>
-#include <geometry_msgs/PoseStamped.h>
-#include <geometry_msgs/Twist.h>
-#include <geometry_msgs/Vector3Stamped.h>
-#include <mavros_msgs/Trajectory.h>
-#include <tf/transform_listener.h>
+#include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
+#include <mavros_msgs/msg/trajectory.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <mutex>
 
 namespace avoidance {
@@ -324,14 +326,14 @@ double getAngularVelocity(float desired_yaw, float curr_yaw);
 * @params[in] pose, position and attitude setpoint computed by the planner
 * @params[in] vel, velocity setpoint computed by the planner
 **/
-void transformToTrajectory(mavros_msgs::Trajectory& obst_avoid, geometry_msgs::PoseStamped pose,
-                           geometry_msgs::Twist vel);
+void transformToTrajectory(mavros_msgs::msg::Trajectory& obst_avoid, geometry_msgs::msg::PoseStamped pose,
+                           geometry_msgs::msg::Twist vel);
 
 /**
 * @brief      fills MavROS trajectory messages with NAN
 * @param      point, setpoint to be filled with NAN
 **/
-void fillUnusedTrajectoryPoint(mavros_msgs::PositionTarget& point);
+void fillUnusedTrajectoryPoint(mavros_msgs::msg::PositionTarget& point);
 
 /**
 * @brief     transforms bezier control points from ROS message to MavROS message
@@ -339,7 +341,7 @@ void fillUnusedTrajectoryPoint(mavros_msgs::PositionTarget& point);
 * @params[in] control_points, control points in Eigen type
 * @params[in] duration to execute the bezier curve
 **/
-void transformToBezier(mavros_msgs::Trajectory& obst_avoid, const std::array<Eigen::Vector4d, 5>& control_points,
+void transformToBezier(mavros_msgs::msg::Trajectory& obst_avoid, const std::array<Eigen::Vector4d, 5>& control_points,
                        double duration);
 
 /**
@@ -347,7 +349,7 @@ void transformToBezier(mavros_msgs::Trajectory& obst_avoid, const std::array<Eig
 * @params[out] point_out, control point in MavROS message form
 * @params[in]  point_in, control point in Eigen type
 **/
-void fillControlPoint(mavros_msgs::PositionTarget& point_out, const Eigen::Vector4d& point_in);
+void fillControlPoint(mavros_msgs::msg::PositionTarget& point_out, const Eigen::Vector4d& point_in);
 /**
 * @brief           This is a refactored version of the PCL library function
 *                  "removeNaNFromPointCloud" to remove NAN values from the
@@ -369,12 +371,12 @@ pcl::PointCloud<pcl::PointXYZ> removeNaNAndGetMaxima(pcl::PointCloud<pcl::PointX
 **/
 void updateFOVFromMaxima(FOV& fov, const pcl::PointCloud<pcl::PointXYZ>& maxima);
 
-inline Eigen::Vector3f toEigen(const geometry_msgs::Point& p) {
+inline Eigen::Vector3f toEigen(const geometry_msgs::msg::Point& p) {
   Eigen::Vector3f ev3(p.x, p.y, p.z);
   return ev3;
 }
 
-inline Eigen::Vector3f toEigen(const geometry_msgs::Vector3& v3) {
+inline Eigen::Vector3f toEigen(const geometry_msgs::msg::Vector3& v3) {
   Eigen::Vector3f ev3(v3.x, v3.y, v3.z);
   return ev3;
 }
@@ -389,7 +391,7 @@ inline Eigen::Vector3f toEigen(const pcl::PointXYZI& p) {
   return ev3;
 }
 
-inline Eigen::Quaternionf toEigen(const geometry_msgs::Quaternion& gmq) {
+inline Eigen::Quaternionf toEigen(const geometry_msgs::msg::Quaternion& gmq) {
   Eigen::Quaternionf eqf;
   eqf.x() = gmq.x;
   eqf.y() = gmq.y;
@@ -398,24 +400,24 @@ inline Eigen::Quaternionf toEigen(const geometry_msgs::Quaternion& gmq) {
   return eqf;
 }
 
-inline geometry_msgs::Point toPoint(const Eigen::Vector3f& ev3) {
-  geometry_msgs::Point gmp;
+inline geometry_msgs::msg::Point toPoint(const Eigen::Vector3f& ev3) {
+  geometry_msgs::msg::Point gmp;
   gmp.x = ev3.x();
   gmp.y = ev3.y();
   gmp.z = ev3.z();
   return gmp;
 }
 
-inline geometry_msgs::Vector3 toVector3(const Eigen::Vector3f& ev3) {
-  geometry_msgs::Vector3 gmv3;
+inline geometry_msgs::msg::Vector3 toVector3(const Eigen::Vector3f& ev3) {
+  geometry_msgs::msg::Vector3 gmv3;
   gmv3.x = ev3.x();
   gmv3.y = ev3.y();
   gmv3.z = ev3.z();
   return gmv3;
 }
 
-inline geometry_msgs::Quaternion toQuaternion(const Eigen::Quaternionf& eqf) {
-  geometry_msgs::Quaternion q;
+inline geometry_msgs::msg::Quaternion toQuaternion(const Eigen::Quaternionf& eqf) {
+  geometry_msgs::msg::Quaternion q;
   q.x = eqf.x();
   q.y = eqf.y();
   q.z = eqf.z();
@@ -458,16 +460,26 @@ inline pcl::PointXYZI toXYZI(const pcl::PointXYZ& xyz, float intensity) {
   return p;
 }
 
-inline geometry_msgs::Twist toTwist(const Eigen::Vector3f& l, const Eigen::Vector3f& a) {
-  geometry_msgs::Twist gmt;
+inline geometry_msgs::msg::Twist toTwist(const Eigen::Vector3f& l, const Eigen::Vector3f& a) {
+  geometry_msgs::msg::Twist gmt;
   gmt.linear = toVector3(l);
   gmt.angular = toVector3(a);
   return gmt;
 }
 
-inline geometry_msgs::PoseStamped toPoseStamped(const Eigen::Vector3f& ev3, const Eigen::Quaternionf& eq) {
-  geometry_msgs::PoseStamped gmps;
-  gmps.header.stamp = ros::Time::now();
+inline geometry_msgs::msg::PoseStamped toPoseStamped(const Eigen::Vector3f& ev3, const Eigen::Quaternionf& eq,
+                                                       rclcpp::Clock& clock) {
+  geometry_msgs::msg::PoseStamped gmps;
+  gmps.header.stamp = clock.now();
+  gmps.header.frame_id = "local_origin";
+  gmps.pose.position = toPoint(ev3);
+  gmps.pose.orientation = toQuaternion(eq);
+  return gmps;
+}
+
+// Overload without clock for cases where time doesn't matter
+inline geometry_msgs::msg::PoseStamped toPoseStamped(const Eigen::Vector3f& ev3, const Eigen::Quaternionf& eq) {
+  geometry_msgs::msg::PoseStamped gmps;
   gmps.header.frame_id = "local_origin";
   gmps.pose.position = toPoint(ev3);
   gmps.pose.orientation = toQuaternion(eq);

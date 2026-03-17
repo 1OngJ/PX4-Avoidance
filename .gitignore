@@ -16,3 +16,4 @@ repo_total.info
 /build
 /install
 /log
+/.pytest_cache

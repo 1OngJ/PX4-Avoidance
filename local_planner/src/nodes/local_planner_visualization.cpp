@@ -91,7 +91,7 @@ void LocalPlannerVisualization::publishFOV(const std::vector<FOV>& fov_vec, floa
                   max_range);
 
     visualization_msgs::msg::Marker m;
-    m.header.frame_id = "fcu";
+    m.header.frame_id = "base_link";
     m.header.stamp = node_->now();
     m.id = i;
     m.type = visualization_msgs::msg::Marker::TRIANGLE_LIST;
@@ -129,7 +129,7 @@ void LocalPlannerVisualization::publishRangeScan(const sensor_msgs::msg::LaserSc
                                                  const Eigen::Vector3f& newest_position) const {
   if (!node_) return;
   visualization_msgs::msg::Marker m;
-  m.header.frame_id = "local_origin";
+  m.header.frame_id = "map";
   m.header.stamp = node_->now();
   m.id = 0;
   m.type = visualization_msgs::msg::Marker::TRIANGLE_LIST;
@@ -180,7 +180,7 @@ void LocalPlannerVisualization::publishOfftrackPoints(Eigen::Vector3f& closest_p
   if (!node_) return;
   visualization_msgs::msg::Marker m;
 
-  m.header.frame_id = "local_origin";
+  m.header.frame_id = "map";
   m.header.stamp = node_->now();
   m.type = visualization_msgs::msg::Marker::SPHERE;
   m.action = visualization_msgs::msg::Marker::ADD;
@@ -206,7 +206,7 @@ void LocalPlannerVisualization::publishTree(const std::vector<TreeNode>& tree, c
                                             const std::vector<Eigen::Vector3f>& path_node_positions) const {
   if (!node_) return;
   visualization_msgs::msg::Marker tree_marker;
-  tree_marker.header.frame_id = "local_origin";
+  tree_marker.header.frame_id = "map";
   tree_marker.header.stamp = node_->now();
   tree_marker.id = 0;
   tree_marker.type = visualization_msgs::msg::Marker::LINE_LIST;
@@ -219,7 +219,7 @@ void LocalPlannerVisualization::publishTree(const std::vector<TreeNode>& tree, c
   tree_marker.color.b = 0.6;
 
   visualization_msgs::msg::Marker path_marker;
-  path_marker.header.frame_id = "local_origin";
+  path_marker.header.frame_id = "map";
   path_marker.header.stamp = node_->now();
   path_marker.id = 0;
   path_marker.type = visualization_msgs::msg::Marker::LINE_LIST;
@@ -256,7 +256,7 @@ void LocalPlannerVisualization::publishGoal(const geometry_msgs::msg::Point& goa
   visualization_msgs::msg::MarkerArray marker_goal;
   visualization_msgs::msg::Marker m;
 
-  m.header.frame_id = "local_origin";
+  m.header.frame_id = "map";
   m.header.stamp = node_->now();
   m.type = visualization_msgs::msg::Marker::SPHERE;
   m.action = visualization_msgs::msg::Marker::ADD;
@@ -341,7 +341,7 @@ void LocalPlannerVisualization::visualizeWaypoints(const Eigen::Vector3f& goto_p
 
   rclcpp::Time now = node_->now();
 
-  sphere1.header.frame_id = "local_origin";
+  sphere1.header.frame_id = "map";
   sphere1.header.stamp = now;
   sphere1.id = 0;
   sphere1.type = visualization_msgs::msg::Marker::SPHERE;
@@ -359,7 +359,7 @@ void LocalPlannerVisualization::visualizeWaypoints(const Eigen::Vector3f& goto_p
   sphere1.color.g = 1.0;
   sphere1.color.b = 0.0;
 
-  sphere2.header.frame_id = "local_origin";
+  sphere2.header.frame_id = "map";
   sphere2.header.stamp = now;
   sphere2.id = 0;
   sphere2.type = visualization_msgs::msg::Marker::SPHERE;
@@ -377,7 +377,7 @@ void LocalPlannerVisualization::visualizeWaypoints(const Eigen::Vector3f& goto_p
   sphere2.color.g = 1.0;
   sphere2.color.b = 0.0;
 
-  sphere3.header.frame_id = "local_origin";
+  sphere3.header.frame_id = "map";
   sphere3.header.stamp = now;
   sphere3.id = 0;
   sphere3.type = visualization_msgs::msg::Marker::SPHERE;
@@ -407,7 +407,7 @@ void LocalPlannerVisualization::publishPaths(const Eigen::Vector3f& last_positio
   if (!node_) return;
   // publish actual path
   visualization_msgs::msg::Marker path_actual_marker;
-  path_actual_marker.header.frame_id = "local_origin";
+  path_actual_marker.header.frame_id = "map";
   path_actual_marker.header.stamp = node_->now();
   path_actual_marker.id = path_length_;
   path_actual_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
@@ -425,7 +425,7 @@ void LocalPlannerVisualization::publishPaths(const Eigen::Vector3f& last_positio
 
   // publish path set by calculated waypoints
   visualization_msgs::msg::Marker path_waypoint_marker;
-  path_waypoint_marker.header.frame_id = "local_origin";
+  path_waypoint_marker.header.frame_id = "map";
   path_waypoint_marker.header.stamp = node_->now();
   path_waypoint_marker.id = path_length_;
   path_waypoint_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
@@ -443,7 +443,7 @@ void LocalPlannerVisualization::publishPaths(const Eigen::Vector3f& last_positio
 
   // publish path set by calculated waypoints
   visualization_msgs::msg::Marker path_adapted_waypoint_marker;
-  path_adapted_waypoint_marker.header.frame_id = "local_origin";
+  path_adapted_waypoint_marker.header.frame_id = "map";
   path_adapted_waypoint_marker.header.stamp = node_->now();
   path_adapted_waypoint_marker.id = path_length_;
   path_adapted_waypoint_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
@@ -467,7 +467,7 @@ void LocalPlannerVisualization::publishCurrentSetpoint(const geometry_msgs::msg:
                                                        const Eigen::Vector3f& newest_position) const {
   if (!node_) return;
   visualization_msgs::msg::Marker setpoint;
-  setpoint.header.frame_id = "local_origin";
+  setpoint.header.frame_id = "map";
   setpoint.header.stamp = node_->now();
   setpoint.id = 0;
   setpoint.type = visualization_msgs::msg::Marker::ARROW;
@@ -523,7 +523,7 @@ void LocalPlannerVisualization::publishPointcloud(const pcl::PointCloud<pcl::Poi
   if (!node_) return;
   sensor_msgs::msg::PointCloud2 cloud_msg;
   pcl::toROSMsg(cloud, cloud_msg);
-  cloud_msg.header.frame_id = "local_origin";
+  cloud_msg.header.frame_id = "map";
   cloud_msg.header.stamp = node_->now();
   local_pointcloud_pub_->publish(cloud_msg);
   

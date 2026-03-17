@@ -24,15 +24,15 @@ def generate_launch_description():
     local_planner_dir = get_package_share_directory('local_planner')
     
     # Paths
-    default_params_file = os.path.join(local_planner_dir, 'params', 'local_planner_depth.yaml')
+    # default_params_file = os.path.join(local_planner_dir, 'params', 'local_planner_depth.yaml')
     default_rviz_config = os.path.join(local_planner_dir, 'resource', 'local_planner.rviz')
 
     # Declare launch arguments
-    params_file_arg = DeclareLaunchArgument(
-        'params_file',
-        default_value=default_params_file,
-        description='Path to the local planner parameters file'
-    )
+    # params_file_arg = DeclareLaunchArgument(
+    #     'params_file',
+    #     default_value=default_params_file,
+    #     description='Path to the local planner parameters file'
+    # )
     
     rviz_config_arg = DeclareLaunchArgument(
         'rviz_config',
@@ -47,16 +47,16 @@ def generate_launch_description():
     )
 
     # Local planner node
-    local_planner_node = Node(
-        package='local_planner',
-        executable='local_planner_node',
-        name='local_planner',
-        output='log',
-        parameters=[LaunchConfiguration('params_file')],
-        remappings=[
-            # Add any topic remappings here if needed
-        ]
-    )
+    # local_planner_node = Node(
+    #     package='local_planner',
+    #     executable='local_planner_node',
+    #     name='local_planner',
+    #     output='log',
+    #     parameters=[LaunchConfiguration('params_file')],
+    #     remappings=[
+    #         # Add any topic remappings here if needed
+    #     ]
+    # )
     
     # RViz2 node
     rviz_node = Node(
@@ -69,9 +69,9 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        params_file_arg,
+        # params_file_arg,
         rviz_config_arg,
         enable_rviz_arg,
-        local_planner_node,
+        # local_planner_node,
         rviz_node,
     ])

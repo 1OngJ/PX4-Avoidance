@@ -128,7 +128,6 @@ install(TARGETS avoidance
 install(DIRECTORY
   launch
   resource
-  sim
   DESTINATION share/${PROJECT_NAME}
 )
 

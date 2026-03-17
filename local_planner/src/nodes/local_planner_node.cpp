@@ -75,6 +75,8 @@ void LocalPlannerNode::declareAndLoadParams() {
   this->declare_parameter<int>("children_per_node", planner_params_.children_per_node);
   this->declare_parameter<double>("tree_node_distance", planner_params_.tree_node_distance);
   this->declare_parameter<double>("camera_yaw_offset_deg", planner_params_.camera_yaw_offset_deg);
+  this->declare_parameter<int>("forward_camera_index", planner_params_.forward_camera_index);
+  this->declare_parameter<double>("non_forward_initial_age_s", planner_params_.non_forward_initial_age_s);
 
   // Load parameters
   planner_rate_hz_ = this->get_parameter("planner_rate_hz").as_double();
@@ -111,6 +113,8 @@ void LocalPlannerNode::declareAndLoadParams() {
   planner_params_.children_per_node = this->get_parameter("children_per_node").as_int();
   planner_params_.tree_node_distance = static_cast<float>(this->get_parameter("tree_node_distance").as_double());
   planner_params_.camera_yaw_offset_deg = static_cast<float>(this->get_parameter("camera_yaw_offset_deg").as_double());
+  planner_params_.forward_camera_index = this->get_parameter("forward_camera_index").as_int();
+  planner_params_.non_forward_initial_age_s = static_cast<float>(this->get_parameter("non_forward_initial_age_s").as_double());
 
   // Initialize goal from parameters
   goal_ = Eigen::Vector3f(static_cast<float>(goal_x_), static_cast<float>(goal_y_), static_cast<float>(goal_z_));
@@ -348,7 +352,7 @@ void LocalPlannerNode::onTimer() {
       // Try to get transform to map frame (MAVROS uses "map" as local origin)
       geometry_msgs::msg::TransformStamped transform;
       transform = tf_buffer_.lookupTransform(
-          "map", clouds[i].header.frame_id,
+          target_cloud_frame_, clouds[i].header.frame_id,
           tf2::TimePointZero,
           tf2::durationFromSec(0.1));
 

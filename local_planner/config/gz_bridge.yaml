@@ -13,9 +13,45 @@
   gz_type_name: gz.msgs.PointCloudPacked
   direction: GZ_TO_ROS
 
+- ros_topic_name: /camera_1/depth/points
+  gz_topic_name: /depth_camera_1/points
+  ros_type_name: sensor_msgs/msg/PointCloud2
+  gz_type_name: gz.msgs.PointCloudPacked
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /camera_2/depth/points
+  gz_topic_name: /depth_camera_2/points
+  ros_type_name: sensor_msgs/msg/PointCloud2
+  gz_type_name: gz.msgs.PointCloudPacked
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /camera_3/depth/points
+  gz_topic_name: /depth_camera_3/points
+  ros_type_name: sensor_msgs/msg/PointCloud2
+  gz_type_name: gz.msgs.PointCloudPacked
+  direction: GZ_TO_ROS
+
 # Depth image (for visualization/debugging)
 - ros_topic_name: /camera/depth/image_raw
   gz_topic_name: /depth_camera
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /camera_1/depth/image_raw
+  gz_topic_name: /depth_camera_1
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /camera_2/depth/image_raw
+  gz_topic_name: /depth_camera_2
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /camera_3/depth/image_raw
+  gz_topic_name: /depth_camera_3
   ros_type_name: sensor_msgs/msg/Image
   gz_type_name: gz.msgs.Image
   direction: GZ_TO_ROS

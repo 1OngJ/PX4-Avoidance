@@ -5,7 +5,8 @@
 #
 # Prerequisites:
 #   1. Start PX4 SITL: make px4_sitl gz_x500_depth  (or gz_x500_lidar_2d)
-#   2. Start MAVROS2: ros2 launch mavros mavros.launch.py fcu_url:=udp://:14540@127.0.0.1:14557
+#   2. Start MAVROS2 (with sim time!):
+#      ros2 launch mavros mavros.launch.py fcu_url:=udp://:14540@127.0.0.1:14557 --ros-args -p use_sim_time:=true
 #
 # Usage: 
 #   ./launch_local_planner_sitl.sh         # Auto-detect model
@@ -69,13 +70,14 @@ case "$MODEL_TYPE" in
 esac
 
 # Kill any existing processes
-echo "[1/4] Cleaning up existing processes..."
+echo "[1/3] Cleaning up existing processes..."
 pkill -f "ros_gz_bridge" 2>/dev/null || true
 pkill -f "local_planner_node" 2>/dev/null || true
+pkill -f "static_transform_publisher" 2>/dev/null || true
 sleep 1
 
-# Start Gazebo-ROS2 bridge for lidar
-echo "[2/4] Starting Gazebo-ROS2 bridge..."
+# Start Gazebo-ROS2 bridge
+echo "[2/3] Starting Gazebo-ROS2 bridge..."
 ros2 run ros_gz_bridge parameter_bridge \
     --ros-args -p config_file:="$SCRIPT_DIR/config/gz_bridge.yaml" \
     --log-level warn &
@@ -90,13 +92,13 @@ if ! ros2 topic list 2>/dev/null | grep -q "$VERIFY_TOPIC"; then
 fi
 echo "   Bridge OK: $VERIFY_TOPIC"
 
-# Start local_planner
-echo "[3/4] Starting local_planner node..."
-ros2 run local_planner local_planner_node \
-    --ros-args --params-file "$PARAMS_FILE" \
-    --log-level warn &
+# Start local_planner via launch file (includes static TF publishers for depth cameras)
+echo "[3/3] Starting local_planner (with static TF transforms)..."
+ros2 launch local_planner local_planner_mavros.launch.py \
+    params_file:="$PARAMS_FILE" \
+    2>/dev/null &
 LP_PID=$!
-sleep 2
+sleep 3
 
 # Verify local_planner
 if ! ros2 node list 2>/dev/null | grep -q "local_planner"; then
@@ -104,13 +106,18 @@ if ! ros2 node list 2>/dev/null | grep -q "local_planner"; then
     kill $BRIDGE_PID $LP_PID 2>/dev/null
     exit 1
 fi
-echo "   local_planner OK"
+echo "   local_planner OK (TF transforms published by launch file)"
 
 # Configure MAVROS for PX4
-echo "[4/5] Configuring MAVROS parameters..."
+echo "[+] Configuring MAVROS parameters..."
 
 # Enable TF broadcasting from MAVROS (critical for obstacle detection)
 if ros2 node list 2>/dev/null | grep -q "/mavros"; then
+    # Ensure MAVROS uses simulation time (must match Gazebo /clock)
+    ros2 param set /mavros use_sim_time true 2>/dev/null && \
+        echo "   Set use_sim_time=true (sync with Gazebo clock)" || \
+        echo "   WARNING: Could not set use_sim_time. Launch MAVROS with: --ros-args -p use_sim_time:=true"
+
     # Enable TF broadcast for local_position
     ros2 param set /mavros/local_position tf.send true 2>/dev/null && \
         echo "   Set local_position/tf.send=true (enables TF broadcast)" || \
@@ -128,6 +135,9 @@ else
     echo "   WARNING: MAVROS node not found. Make sure MAVROS is running."
 fi
 
+# ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.03 --z 0.242 --roll 0 --pitch 0 --yaw 0 --frame-id base_link --child-frame-id x500_depth_0/OakD-Lite/base_link/StereoOV7251 &
+# TF_PID=$!
+
 # Configure MAVROS obstacle plugin
 if ros2 node list 2>/dev/null | grep -q "/mavros/obstacle"; then
     ros2 param set /mavros/obstacle/send mav_frame "MAV_FRAME_BODY_FRD" 2>/dev/null && \
@@ -137,18 +147,7 @@ else
     echo "   WARNING: MAVROS obstacle node not found."
 fi
 
-# Static TF: base_link -> camera_frame
-echo ""
-echo "[5/6] Publishing static TF transforms..."
-
-# Static TF: base_link -> camera_frame
-echo ""
-echo "[5/6] Publishing static TF transforms..."
-ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.03 --z 0.242 --roll 0 --pitch 0 --yaw 0 --frame-id base_link --child-frame-id x500_depth_0/OakD-Lite/base_link/StereoOV7251 &
-TF_PID=$!
-#ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.03 --z 0.242 --roll 0 --pitch 0 --yaw 1.745329252 --frame-id base_link --child-frame-id x500_lidar_2d_0/lidar_link/mid360 &
-
-echo "[6/6] System ready!"
+echo "[+] System ready!"
 echo ""
 echo "=== Configuration ==="
 echo "Model: $MODEL_TYPE"
@@ -173,17 +172,17 @@ echo ""
 echo "Press Ctrl+C to stop all processes..."
 
 # Handle Ctrl+C
-# cleanup() {
-#     echo ""
-#     echo "Shutting down..."
-#     kill -9 $BRIDGE_PID $LP_PID 2>/dev/null
-#     wait $BRIDGE_PID $LP_PID 2>/dev/null
-#     echo "Done."
-#     exit 0
-# }
-# trap cleanup SIGINT SIGTERM
+cleanup() {
+    echo ""
+    echo "Shutting down..."
+    kill $BRIDGE_PID $LP_PID 2>/dev/null
+    wait $BRIDGE_PID $LP_PID 2>/dev/null
+    echo "Done."
+    exit 0
+}
+trap cleanup SIGINT SIGTERM
 
-# Wait for processes (use wait -n for faster response)
+# Wait for processes
 while kill -0 $BRIDGE_PID 2>/dev/null && kill -0 $LP_PID 2>/dev/null; do
     sleep 1
 done

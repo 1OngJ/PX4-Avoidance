@@ -28,6 +28,8 @@ void LocalPlanner::setParams(const Params& params) {
   max_sensor_range_ = params.max_sensor_range;
   min_sensor_range_ = params.min_sensor_range;
   max_point_age_s_ = params.max_point_age_s;
+  forward_camera_index_ = params.forward_camera_index;
+  non_forward_initial_age_s_ = params.non_forward_initial_age_s;
   min_num_points_per_cell_ = params.min_num_points_per_cell;
   timeout_startup_ = params.timeout_startup;
   timeout_critical_ = params.timeout_critical;
@@ -87,7 +89,7 @@ void LocalPlanner::runPlanner() {
   float elapsed_since_last_processing = static_cast<float>((now_steady - last_pointcloud_process_time_).seconds());
   processPointcloud(final_cloud_, original_cloud_vector_, fov_fcu_frame_, yaw_fcu_frame_deg_, pitch_fcu_frame_deg_,
                     position_, min_sensor_range_, max_sensor_range_, max_point_age_s_, elapsed_since_last_processing,
-                    min_num_points_per_cell_);
+                    min_num_points_per_cell_, forward_camera_index_, non_forward_initial_age_s_);
   last_pointcloud_process_time_ = now_steady;
 
   determineStrategy();
@@ -160,28 +162,47 @@ void LocalPlanner::determineStrategy() {
 
 void LocalPlanner::updateObstacleDistanceMsg(Histogram hist) {
   sensor_msgs::msg::LaserScan msg;
-  // {
-  //   const auto now = rclcpp::Clock(RCL_SYSTEM_TIME).now();
-  //   const int64_t now_ns = now.nanoseconds();
-  //   msg.header.stamp.sec = static_cast<int32_t>(now_ns / 1000000000LL);
-  //   msg.header.stamp.nanosec = static_cast<uint32_t>(now_ns % 1000000000LL);
-  // }
   msg.header.stamp = rclcpp::Clock(RCL_SYSTEM_TIME).now();
-  msg.header.frame_id = "local_origin";
-  msg.angle_increment = static_cast<float>(ALPHA_RES) * M_PI / 180.0f;
+  msg.header.frame_id = "base_link";
+  msg.angle_min = 0.0f;
+  msg.angle_max = 2.0f * static_cast<float>(M_PI)
+                  - static_cast<float>(ALPHA_RES) * static_cast<float>(M_PI) / 180.0f;
+  msg.angle_increment = static_cast<float>(ALPHA_RES) * static_cast<float>(M_PI) / 180.0f;
   msg.range_min = min_sensor_range_;
   msg.range_max = max_sensor_range_;
-  msg.ranges.reserve(GRID_LENGTH_Z);
-  
-  for (int i = 0; i < GRID_LENGTH_Z; ++i) {
-    // PX4 body frame angle (clockwise from front)
-    int j = (i + GRID_LENGTH_Z / 2) % GRID_LENGTH_Z;
-    float dist = hist.get_dist(0, j);
+  msg.ranges.resize(GRID_LENGTH_Z);
 
-    if (histogramIndexYawInsideFOV(fov_fcu_frame_, j, position_, yaw_fcu_frame_deg_)) {
-      msg.ranges.push_back(dist > min_sensor_range_ ? dist : max_sensor_range_ + 0.01f);
+  // ---- Coordinate convention ----
+  // MAVROS obstacle plugin default: mav_frame = "GLOBAL"
+  //   → MAVLink OBSTACLE_DISTANCE.frame = MAV_FRAME_GLOBAL
+  //   → PX4 interprets angles as NED heading: 0°=North, CW
+  //
+  // Histogram azimuth: atan2(east, north) → 0°=North, 90°=East, CW
+  //   → SAME convention as NED heading!
+  //
+  // So the mapping is trivial:
+  //   ranges[i] = distance at NED heading (i * ALPHA_RES)°
+  //   hist_az   = i * ALPHA_RES  (direct 1:1 mapping)
+
+  for (int i = 0; i < GRID_LENGTH_Z; ++i) {
+    // NED heading angle for this bin (0°=North, CW)
+    // Same convention as histogram azimuth → direct mapping
+    float hist_az_deg = static_cast<float>(i * ALPHA_RES);
+
+    // Wrap to [-180, 180) for histogram index calculation
+    while (hist_az_deg > 180.0f) hist_az_deg -= 360.0f;
+    while (hist_az_deg <= -180.0f) hist_az_deg += 360.0f;
+
+    int z_idx = static_cast<int>(std::floor(hist_az_deg / static_cast<float>(ALPHA_RES)
+                                            + static_cast<float>(GRID_LENGTH_Z) / 2.0f));
+    z_idx = std::max(0, std::min(z_idx, GRID_LENGTH_Z - 1));
+
+    float dist = hist.get_dist(0, z_idx);
+
+    if (histogramIndexYawInsideFOV(fov_fcu_frame_, z_idx, position_, yaw_fcu_frame_deg_)) {
+      msg.ranges[i] = dist > min_sensor_range_ ? dist : max_sensor_range_ + 0.01f;
     } else {
-      msg.ranges.push_back(max_sensor_range_ + 1.00f);
+      msg.ranges[i] = max_sensor_range_ + 1.00f;
     }
   }
 
@@ -191,7 +212,7 @@ void LocalPlanner::updateObstacleDistanceMsg(Histogram hist) {
 void LocalPlanner::updateObstacleDistanceMsg() {
   sensor_msgs::msg::LaserScan msg;
   msg.header.stamp = rclcpp::Clock(RCL_SYSTEM_TIME).now();
-  msg.header.frame_id = "local_origin";
+  msg.header.frame_id = "map";
   msg.angle_increment = static_cast<float>(ALPHA_RES) * M_PI / 180.0f;
   msg.range_min = min_sensor_range_;
   msg.range_max = max_sensor_range_;

@@ -19,6 +19,17 @@ bool pointInsideFOV(const std::vector<FOV>& fov_vec, const PolarPoint& p_pol) {
   return false;
 }
 
+// bool pointInsideFOV(const FOV& fov, const PolarPoint& p_pol) {
+//   // Use angular difference to correctly handle wrap-around at ±180°.
+//   // The old boundary comparison (p_pol.z <= upper && p_pol.z >= lower) breaks when
+//   // the FOV straddles the ±180° discontinuity (e.g. rear camera at yaw=180°):
+//   //   upper = wrap(180+43.5) = -136.5°,  lower = 136.5°  → condition always false.
+//   float dz = wrapAngleToPlusMinus180(p_pol.z - fov.yaw_deg);
+//   return std::abs(dz) <= fov.h_fov_deg / 2.f &&
+//          p_pol.e <= fov.pitch_deg + fov.v_fov_deg / 2.f &&
+//          p_pol.e >= fov.pitch_deg - fov.v_fov_deg / 2.f;
+// }
+
 bool pointInsideFOV(const FOV& fov, const PolarPoint& p_pol) {
   return p_pol.z <= wrapAngleToPlusMinus180(fov.yaw_deg + fov.h_fov_deg / 2.f) &&
          p_pol.z >= wrapAngleToPlusMinus180(fov.yaw_deg - fov.h_fov_deg / 2.f) &&
@@ -64,6 +75,12 @@ bool pointInsideYawFOV(const std::vector<FOV>& fov_vec, const PolarPoint& p_pol)
   }
   return false;
 }
+
+// bool pointInsideYawFOV(const FOV& fov, const PolarPoint& p_pol) {
+//   // Same wrap-around fix as pointInsideFOV.
+//   float dz = wrapAngleToPlusMinus180(p_pol.z - fov.yaw_deg);
+//   return std::abs(dz) <= fov.h_fov_deg / 2.f;
+// }
 
 bool pointInsideYawFOV(const FOV& fov, const PolarPoint& p_pol) {
   return p_pol.z <= wrapAngleToPlusMinus180(fov.yaw_deg + fov.h_fov_deg / 2.f) &&

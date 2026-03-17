@@ -40,6 +40,8 @@ class LocalPlanner {
   float max_sensor_range_ = 12.0f;
   float smoothing_margin_degrees_ = 30.f;
   float max_point_age_s_ = 10;
+  int forward_camera_index_ = 0;
+  float non_forward_initial_age_s_ = 0.0f;
   float yaw_fcu_frame_deg_ = 0.0f;
   float pitch_fcu_frame_deg_ = 0.0f;
   
@@ -183,6 +185,8 @@ class LocalPlanner {
     int n_expanded_nodes = 80;
     float tree_node_distance = 0.8f;
     float camera_yaw_offset_deg = 0.0f;  // Camera frame to body frame offset
+    int forward_camera_index = 0;           // Index of the forward-facing camera (highest confidence)
+    float non_forward_initial_age_s = 0.0f; // Initial age [s] assigned to non-forward camera points
   };
 
   void setParams(const Params& params);

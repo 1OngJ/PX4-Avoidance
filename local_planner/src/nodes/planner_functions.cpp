@@ -9,7 +9,8 @@ void processPointcloud(pcl::PointCloud<pcl::PointXYZI>& final_cloud,
                        const std::vector<pcl::PointCloud<pcl::PointXYZ>>& complete_cloud, const std::vector<FOV>& fov,
                        float yaw_fcu_frame_deg, float pitch_fcu_frame_deg, const Eigen::Vector3f& position,
                        float min_sensor_range, float max_sensor_range, float max_age, float elapsed_s,
-                       int min_num_points_per_cell) {
+                       int min_num_points_per_cell, int forward_camera_index,
+                       float non_forward_initial_age_s) {
   const int SCALE_FACTOR = 3;
   pcl::PointCloud<pcl::PointXYZI> old_cloud;
   std::swap(final_cloud, old_cloud);
@@ -23,18 +24,45 @@ void processPointcloud(pcl::PointCloud<pcl::PointXYZI>& final_cloud,
 
   auto sqr = [](float f) { return f * f; };
 
-  for (const auto& cloud : complete_cloud) {
+  // ============================================================================
+  // Phase 1: Process forward camera with full confidence (age = 0)
+  // Forward camera data is the primary obstacle detection source.
+  // ============================================================================
+  if (forward_camera_index >= 0 && forward_camera_index < static_cast<int>(complete_cloud.size())) {
+    const auto& cloud = complete_cloud[forward_camera_index];
     for (const pcl::PointXYZ& xyz : cloud) {
-      // Check if the point is invalid
       if (!std::isnan(xyz.x) && !std::isnan(xyz.y) && !std::isnan(xyz.z)) {
         float distanceSq = (position - toEigen(xyz)).squaredNorm();
         if (sqr(min_sensor_range) < distanceSq && distanceSq < sqr(max_sensor_range)) {
-          // subsampling the cloud
           PolarPoint p_pol = cartesianToPolarHistogram(toEigen(xyz), position);
           Eigen::Vector2i p_ind = polarToHistogramIndex(p_pol, ALPHA_RES / SCALE_FACTOR);
           histogram_points_counter(p_ind.y(), p_ind.x())++;
           if (histogram_points_counter(p_ind.y(), p_ind.x()) == min_num_points_per_cell) {
-            final_cloud.points.push_back(toXYZI(toEigen(xyz), 0.0f));
+            final_cloud.points.push_back(toXYZI(toEigen(xyz), 0.0f));  // age = 0, highest confidence
+          }
+        }
+      }
+    }
+  }
+
+  // ============================================================================
+  // Phase 2: Process non-forward cameras as supplementary historical data
+  // These points are assigned an initial age so they expire sooner than
+  // forward camera data, and only fill cells not already covered by Phase 1.
+  // ============================================================================
+  for (size_t cam_idx = 0; cam_idx < complete_cloud.size(); ++cam_idx) {
+    if (static_cast<int>(cam_idx) == forward_camera_index) continue;
+    const auto& cloud = complete_cloud[cam_idx];
+    for (const pcl::PointXYZ& xyz : cloud) {
+      if (!std::isnan(xyz.x) && !std::isnan(xyz.y) && !std::isnan(xyz.z)) {
+        float distanceSq = (position - toEigen(xyz)).squaredNorm();
+        if (sqr(min_sensor_range) < distanceSq && distanceSq < sqr(max_sensor_range)) {
+          PolarPoint p_pol = cartesianToPolarHistogram(toEigen(xyz), position);
+          Eigen::Vector2i p_ind = polarToHistogramIndex(p_pol, ALPHA_RES / SCALE_FACTOR);
+          histogram_points_counter(p_ind.y(), p_ind.x())++;
+          if (histogram_points_counter(p_ind.y(), p_ind.x()) == min_num_points_per_cell) {
+            // Supplementary data: assigned initial age for lower effective confidence
+            final_cloud.points.push_back(toXYZI(toEigen(xyz), non_forward_initial_age_s));
           }
         }
       }
@@ -339,9 +367,10 @@ std::pair<float, float> costFunction(const PolarPoint& candidate_polar, float ob
   const float velocity_cost =
       cost_params.velocity_cost_param * (velocity.norm() - candidate_velocity_cartesian.normalized().dot(velocity));
 
-  float weight = 0.f;  // yaw cost partition between back to line previous-current goal and goal
+  
+  float weight = 0.0f;
   if (!is_obstacle_facing_goal) {
-    weight = 0.5f;
+    weight = 0.5f;  // if no obstacle is facing the goal, we can put more emphasis on aligning with the goal direction
   }
 
   const float yaw_cost = (1.f - weight) * cost_params.yaw_cost_param * angle_diff * angle_diff;
